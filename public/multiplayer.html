@@ -1,0 +1,666 @@
+<!-- /client/public/multiplayer.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Mania Next - Multiplayer</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            background-color: #0f0f13; 
+            color: #e2e2e8; font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif; overflow: hidden; 
+        }
+
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; opacity: 0; transition: opacity 0.2s ease-out; z-index: 10; }
+        .screen.active { display: flex; opacity: 1; }
+
+        .mode-switcher { 
+            position: absolute; top: 30px; left: 50%; transform: translateX(-50%); display: flex; background: rgba(20, 20, 30, 0.8); 
+            border-radius: 20px; padding: 5px; z-index: 100; backdrop-filter: blur(10px); box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .mode-tab { padding: 8px 25px; border-radius: 15px; cursor: pointer; font-weight: 600; color: #888; transition: all 0.2s ease; font-size: 14px; text-decoration: none; display: block;}
+        .mode-tab.active { background: #3b82f6; color: #fff; box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4); }
+
+        #multi-login-screen { justify-content: center; align-items: center; background: radial-gradient(circle at center, #1e1e28 0%, #0f0f13 100%); }
+        .setup-box { background: #1a1a24; padding: 40px; border-radius: 16px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); position: relative; max-width: 500px; width: 90%; }
+        .setup-title { font-size: 26px; font-weight: 700; margin-bottom: 10px; color: #fff; }
+        .setup-desc { color: #aaa; margin-bottom: 30px; font-size: 14px; }
+        .setup-input { width: 100%; padding: 12px 15px; font-size: 15px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; outline: none; transition: border-color 0.2s; margin-bottom: 15px; }
+        .setup-input:focus { border-color: #3b82f6; }
+        .setup-btn { padding: 12px 30px; background: #3b82f6; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .setup-btn:hover { background: #60a5fa; transform: translateY(-2px); box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3); }
+
+        .multi-layout { display: flex; width: 100%; height: 100%; padding: 100px 40px 40px 40px; gap: 20px; background: transparent; }
+        .panel { background: #1a1a24; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+        .panel h2 { margin-top: 0; color: #fff; border-bottom: 2px solid rgba(255,255,255,0.1); padding-bottom: 10px; font-size: 18px; font-weight: 700; }
+        
+        .room-list-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: 0.2s ease; border-left: 4px solid transparent; }
+        .room-list-item:hover { background: rgba(59, 130, 246, 0.1); border-left-color: #3b82f6; }
+        
+        .player-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 8px; cursor: context-menu; }
+        .player-item:hover { background: rgba(255,255,255,0.05); }
+        .status-badge { padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+        
+        .st-idle { background: rgba(100,100,100,0.2); color: #aaa; }
+        .st-spectating { background: rgba(139, 92, 246, 0.2); color: #c4b5fd; }
+        .st-nomap { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        .st-downloading { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        .st-ready { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+        .st-playing { background: rgba(217, 70, 239, 0.2); color: #f0abfc; }
+
+        .queue-item { background: rgba(0,0,0,0.2); padding: 12px 15px; border-radius: 8px; margin-bottom: 8px; border-left: 4px solid #3b82f6; display: flex; justify-content: space-between; align-items: center; }
+        .queue-item-info { display: flex; flex-direction: column; }
+        .queue-item-remove { cursor: pointer; color: #ef4444; font-size: 12px; font-weight: 700; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; transition: 0.2s; }
+        .queue-item-remove:hover { background: #ef4444; color: #fff; }
+
+        .chat-container { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden; margin-top: 10px; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 15px; font-size: 14px; display: flex; flex-direction: column; gap: 8px; }
+        .chat-input-area { display: flex; border-top: 1px solid rgba(255,255,255,0.05); padding: 10px; background: rgba(0,0,0,0.4); gap: 10px; }
+        .chat-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px; outline: none; font-size: 14px; padding: 8px 12px; }
+        .chat-send-btn { background: #3b82f6; border: none; color: #fff; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .chat-send-btn:hover { background: #60a5fa; }
+
+        ::-webkit-scrollbar { width: 6px; transition: width 0.2s; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
+        div:hover::-webkit-scrollbar { width: 10px; }
+
+        .top-btn { position: absolute; top: 30px; background: rgba(30,30,40,0.8); padding: 10px 20px; border-radius: 8px; cursor: pointer; color: #fff; font-size: 14px; font-weight: 600; transition: all 0.2s ease; z-index: 10; backdrop-filter: blur(5px); }
+        .top-btn:hover { background: rgba(50,50,60,0.9); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+
+        #select-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(10,10,15,0.95); z-index: 200; display: none; flex-direction: column; }
+        .overlay-close { padding: 15px 30px; text-align: right; font-size: 24px; color: #aaa; cursor: pointer; background: #0f0f13; font-weight: bold; border-bottom: 1px solid #222; transition: 0.2s; }
+        .overlay-close:hover { color: #fff; background: #ef4444; }
+        .select-iframe { flex: 1; width: 100%; border: none; }
+
+        #context-menu { position: absolute; background: #1a1a24; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 5px 0; min-width: 150px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); z-index: 1000; display: none; }
+        .cm-item { padding: 10px 20px; color: #eee; cursor: pointer; font-size: 14px; transition: 0.2s; }
+        .cm-item:hover { background: #3b82f6; }
+    </style>
+</head>
+<body>
+
+    <div class="mode-switcher">
+        <a class="mode-tab" href="index.html">Single Player</a>
+        <a class="mode-tab active" href="multiplayer.html">Multiplayer</a>
+    </div>
+
+    <div id="multi-login-screen" class="screen active">
+        <div class="setup-box">
+            <div class="setup-title">多人游戏登录</div>
+            <div class="setup-desc">输入昵称加入大厅</div>
+            <div id="login-error" style="color:#ef4444; margin-bottom: 10px; font-weight: bold; display: none;"></div>
+            <input type="text" id="username-input" class="setup-input" placeholder="例如: RhythmMaster">
+            <button class="setup-btn" style="width: 100%;" onclick="joinMultiLobby()">连接</button>
+        </div>
+    </div>
+
+    <div id="multi-lobby-screen" class="screen">
+        <div class="multi-layout">
+            <div class="panel" style="flex: 2;">
+                <h2>在线房间</h2>
+                <div id="room-list" style="flex: 1; overflow-y: auto;"></div>
+            </div>
+            <div class="panel" style="flex: 1; align-items: center; justify-content: center; text-align: center;">
+                <h3 style="color: #ccc; margin-bottom: 20px;">创建房间</h3>
+                <input type="text" id="new-room-name" class="setup-input" placeholder="房间名称" style="width: 100%;">
+                <button class="setup-btn" style="width: 100%;" onclick="createRoom()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="multi-room-screen" class="screen">
+        <div class="top-btn" style="left: 40px; background: rgba(239, 68, 68, 0.1); color: #ef4444;" onclick="leaveRoom()">退出房间</div>
+        <div class="multi-layout">
+            
+            <div class="panel" style="flex: 1.2;">
+                <h2>谱面队列</h2>
+                <div id="map-queue-list" style="flex: 1; overflow-y: auto; margin-bottom: 15px;"></div>
+                
+                <div id="drop-zone" class="drop-zone" style="height: 50px; margin-bottom: 10px; border-radius: 8px; border: 2px dashed rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; color: #888; cursor: pointer; font-size: 13px; font-weight: 600; transition: 0.2s;">
+                    将 .osz 文件拖至此处添加谱面
+                </div>
+                <div id="upload-status" style="text-align: center; color:#60a5fa; height: 16px; font-size: 12px;"></div>
+
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button class="setup-btn" style="flex: 1; background: rgba(255,255,255,0.1); color: #fff;" onclick="openMultiMapSelector()">添加谱面</button>
+                </div>
+
+                <div style="display: flex; gap: 15px; margin-top: auto;">
+                    <button class="setup-btn" id="btn-spectate" style="flex: 1; background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #ccc;">观战</button>
+                    <button class="setup-btn" id="btn-action" style="flex: 2; background: #10b981;">准备</button>
+                </div>
+            </div>
+            
+            <div class="panel" style="flex: 1;">
+                <h2>玩家列表</h2>
+                <div id="player-list" style="flex: 1; overflow-y: auto;"></div>
+            </div>
+
+            <div class="panel" style="flex: 1.2; padding: 0;">
+                <div style="padding: 20px 20px 0 20px;">
+                    <h2>聊天</h2>
+                </div>
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages"></div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" class="chat-input" placeholder="输入消息..." onkeypress="if(event.key==='Enter') sendChat()">
+                        <button class="chat-send-btn" onclick="sendChat()">发送</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="select-overlay">
+        <div class="overlay-close" onclick="closeMapSelector()">× 取消</div>
+        <iframe class="select-iframe" id="select-iframe"></iframe>
+    </div>
+
+    <div id="context-menu">
+        <div class="cm-item" id="cm-kick" style="color: #fca5a5;">踢出玩家</div>
+    </div>
+
+    <script>
+        const LOCAL_API_URL = '/api'; 
+        const REMOTE_WS_URL = 'ws://hahai18.info:2052';
+        const REMOTE_API_URL = 'http://hahai18.info:2052/api';
+
+        class CustomSocket {
+            constructor() {
+                this.ws = new WebSocket(REMOTE_WS_URL);
+                this.handlers = {};
+                this.connected = false;
+
+                this.ws.onopen = () => { this.connected = true; if(this.handlers['connect']) this.handlers['connect'].forEach(cb=>cb()); };
+                this.ws.onmessage = (e) => { try { const { type, data } = JSON.parse(e.data); if(this.handlers[type]) this.handlers[type].forEach(cb=>cb(data)); } catch (err) {} };
+                this.ws.onclose = () => { this.connected = false; if(this.handlers['disconnect']) this.handlers['disconnect'].forEach(cb=>cb()); };
+            }
+            on(event, callback) { if(!this.handlers[event]) this.handlers[event] = []; this.handlers[event].push(callback); }
+            emit(event, data) {
+                const payload = JSON.stringify({ type: event, data });
+                if(this.connected && this.ws.readyState === 1) this.ws.send(payload);
+                else { const iv = setInterval(() => { if(this.connected && this.ws.readyState === 1) { this.ws.send(payload); clearInterval(iv); } }, 100); }
+            }
+            disconnect() { this.ws.close(); }
+        }
+
+        let socket = null;
+        let multiUid = '', multiUsername = '';
+        let roomData = null;
+        let beatmapsCache = [];
+        let roomAudio = new Audio();
+        let contextTargetPlayerId = null;
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            if (!localStorage.getItem('wm_folderPath')) {
+                alert('请先在 Single Player 模式下完成初始化设置。');
+                window.location.href = 'index.html';
+                return;
+            }
+
+            try {
+                const folderPath = localStorage.getItem('wm_folderPath');
+                const res = await fetch(`${LOCAL_API_URL}/scan`, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ folderPath, forceRescan: false }) 
+                });
+                const data = await res.json();
+                if (data.success) beatmapsCache = data.beatmaps || [];
+            } catch(e) {}
+
+            const savedUsername = localStorage.getItem('wm_username');
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetRoom = urlParams.get('room');
+
+            if (savedUsername) {
+                document.getElementById('username-input').value = savedUsername;
+                document.getElementById('new-room-name').value = `${savedUsername}的房间`;
+                
+                if (sessionStorage.getItem('webmania_multi') !== 'true') {
+                    joinMultiLobby(targetRoom);
+                } else if (sessionStorage.getItem('webmania_multi_room')) {
+                    const r = JSON.parse(sessionStorage.getItem('webmania_multi_room'));
+                    joinMultiLobby(r.id);
+                }
+            }
+        });
+
+        document.addEventListener('click', () => {
+            document.getElementById('context-menu').style.display = 'none';
+        });
+
+        document.getElementById('cm-kick').onclick = () => {
+            if (!contextTargetPlayerId) return;
+            socket.emit('kick_player', contextTargetPlayerId);
+        };
+
+        function showContextMenu(e, targetUid) {
+            if (!roomData || roomData.host !== multiUid || targetUid === multiUid) return;
+            e.preventDefault();
+            contextTargetPlayerId = targetUid;
+            const cm = document.getElementById('context-menu');
+            cm.style.display = 'block';
+            cm.style.left = e.pageX + 'px';
+            cm.style.top = e.pageY + 'px';
+        }
+
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function setupMultiSocketEvents(targetRoomId = null) {
+            socket.on('login_failed', (err) => {
+                const errDiv = document.getElementById('login-error');
+                errDiv.style.display = 'block';
+                errDiv.innerText = err;
+                showScreen('multi-login-screen');
+                socket.disconnect();
+                socket = null;
+            });
+            socket.on('room_list', rooms => {
+                document.getElementById('room-list').innerHTML = rooms.map(r => `
+                    <div class="room-list-item" onclick="joinRoom('${r.id}')">
+                        <div><b style="font-size:16px;">${r.name}</b> <span style="font-size:12px;color:#aaa;margin-left:10px;">[人数: ${r.players.length}]</span></div>
+                        <div style="font-weight:600; color:${r.state==='playing'?'#fca5a5':'#6ee7b7'}">${r.state === 'playing' ? '游戏中' : '等待中'}</div>
+                    </div>
+                `).join('');
+            });
+            socket.on('room_update', r => { roomData = r; updateRoomUI(); });
+            socket.on('chat_message', msg => {
+                const chatBox = document.getElementById('chat-messages');
+                chatBox.innerHTML += `<div><b style="color:#60a5fa;">${msg.sender}:</b> <span style="color:#ddd">${msg.text}</span></div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            });
+            socket.on('game_started', (updatedRoomData) => {
+                roomData = updatedRoomData;
+                const me = roomData.players.find(p => p.uid === multiUid);
+                sessionStorage.setItem('webmania_multi', 'true');
+                sessionStorage.setItem('webmania_multi_room', JSON.stringify(roomData));
+                sessionStorage.setItem('webmania_multi_uid', multiUid);
+                sessionStorage.setItem('webmania_multi_role', (me.status === 'ready' || me.status === 'playing') ? 'player' : 'spectator');
+                
+                if (roomData.mapQueue.length > 0) {
+                    const currentMapInfo = roomData.mapQueue[0];
+                    const foundMap = beatmapsCache.find(b => b.title === currentMapInfo.title && b.version === currentMapInfo.version);
+                    if (foundMap) sessionStorage.setItem('webmania_current_map', JSON.stringify(foundMap));
+                }
+                roomAudio.pause();
+                window.location.href = 'game.html';
+            });
+            socket.on('kicked', () => {
+                alert('您已被房主踢出。');
+                leaveRoom();
+            });
+            socket.on('room_not_found', () => {
+                alert('房间已关闭或不存在。');
+                window.history.replaceState({}, '', 'multiplayer.html');
+                showScreen('multi-lobby-screen');
+            });
+
+            if (targetRoomId) {
+                socket.emit('join_room', { roomId: targetRoomId });
+                showScreen('multi-room-screen');
+            }
+        }
+
+        function joinMultiLobby(targetRoomId = null) {
+            const name = document.getElementById('username-input').value;
+            if (!name) return alert('请输入昵称。');
+            localStorage.setItem('wm_username', name);
+            document.getElementById('new-room-name').value = `${name}的房间`;
+            
+            if (!socket || !socket.connected) {
+                socket = new CustomSocket();
+                socket.on('connect', () => socket.emit('join_multi', { username: name, uid: sessionStorage.getItem('webmania_multi_uid') || Math.random().toString(36).substr(2,9) }));
+                socket.on('multi_joined', data => { 
+                    multiUid = data.uid; multiUsername = data.username; 
+                    sessionStorage.setItem('webmania_multi_uid', multiUid); 
+                    document.getElementById('login-error').style.display = 'none';
+                    if (!targetRoomId) showScreen('multi-lobby-screen'); 
+                });
+                setupMultiSocketEvents(targetRoomId);
+            }
+        }
+
+        function createRoom() {
+            const name = document.getElementById('new-room-name').value || (multiUsername.split('#')[0] + "的房间");
+            socket.emit('create_room', { name, isPrivate: false });
+            showScreen('multi-room-screen');
+        }
+
+        function joinRoom(id) {
+            window.history.replaceState({}, '', `multiplayer.html?room=${id}`);
+            socket.emit('join_room', { roomId: id });
+            showScreen('multi-room-screen');
+        }
+
+        function leaveRoom() {
+            window.history.replaceState({}, '', 'multiplayer.html');
+            if (socket) socket.emit('leave_room');
+            roomAudio.pause();
+            showScreen('multi-lobby-screen');
+        }
+
+        function sendChat() {
+            const input = document.getElementById('chat-input'); const text = input.value.trim();
+            if (text) { socket.emit('send_chat', text); input.value = ''; }
+        }
+
+        function checkLocalMap(mapInfo) {
+            if (!mapInfo || beatmapsCache.length === 0) return false;
+            return beatmapsCache.some(b => b.title === mapInfo.title && b.version === mapInfo.version);
+        }
+
+        function updateRoomUI() {
+            if (!roomData) return;
+            const isHost = roomData.host === multiUid;
+            const me = roomData.players.find(p => p.uid === multiUid) || {};
+            
+            const queueList = document.getElementById('map-queue-list');
+            if (roomData.mapQueue.length === 0) {
+                queueList.innerHTML = '<div style="color:#666; text-align:center; padding: 20px;">队列为空</div>';
+            } else {
+                queueList.innerHTML = roomData.mapQueue.map((m, i) => `
+                    <div class="queue-item">
+                        <div class="queue-item-info">
+                            <span style="font-weight:700; font-size:14px; color:#fff;">[0${i+1}] ${m.title}</span>
+                            <span style="font-size:12px; color:#aaa;">${m.artist} // ${m.version}</span>
+                        </div>
+                        ${isHost ? `<div class="queue-item-remove" onclick="socket.emit('remove_from_queue', ${i})">删除</div>` : ''}
+                    </div>
+                `).join('');
+            }
+
+            const currentMap = roomData.mapQueue.length > 0 ? roomData.mapQueue[0] : null;
+            let mapHasAudio = false;
+
+            if (currentMap) {
+                if (me.status !== 'spectating' && me.status !== 'downloading' && me.status !== 'ready' && me.status !== 'playing') {
+                    if (checkLocalMap(currentMap)) {
+                        if (me.status !== 'idle') socket.emit('change_status', 'idle');
+                    } else {
+                        if (me.status !== 'nomap') socket.emit('change_status', 'nomap');
+                    }
+                }
+                
+                if (checkLocalMap(currentMap)) {
+                    const localMap = beatmapsCache.find(b => b.title === currentMap.title && b.version === currentMap.version);
+                    if (localMap && localMap.audioPath) {
+                        mapHasAudio = true;
+                        const srcPath = `${LOCAL_API_URL}/file?path=${encodeURIComponent(localMap.audioPath)}`;
+                        if (roomAudio.src !== srcPath && roomAudio.src !== window.location.origin + srcPath) {
+                            roomAudio.src = srcPath;
+                            roomAudio.loop = true;
+                            roomAudio.volume = 0.5;
+                            roomAudio.play().catch(e=>{});
+                        } else if (roomAudio.paused) {
+                            roomAudio.play().catch(e=>{});
+                        }
+                    }
+                }
+            } else {
+                if (me.status !== 'spectating' && me.status !== 'idle') socket.emit('change_status', 'idle');
+            }
+
+            if (!mapHasAudio) {
+                roomAudio.pause();
+                roomAudio.src = "";
+            }
+
+            const statusNames = { 'idle': '等待中', 'spectating':'观战中', 'nomap':'缺少谱面', 'downloading':'下载中', 'ready':'已准备', 'playing':'游戏中', 'finished':'已完成' };
+            document.getElementById('player-list').innerHTML = roomData.players.map(p => `
+                <div class="player-item" oncontextmenu="showContextMenu(event, '${p.uid}')">
+                    <span style="font-size:14px; color:#eee;">${p.uid === roomData.host ? '<span style="color:#fbbf24">[房主]</span> ' : ''}<b>${p.name}</b></span>
+                    <span class="status-badge st-${p.status}">${statusNames[p.status] || p.status} ${p.isOffline ? '(离线)' : ''}</span>
+                </div>
+            `).join('');
+
+            if (roomData.chat) {
+                const chatBox = document.getElementById('chat-messages');
+                chatBox.innerHTML = roomData.chat.map(msg => `<div><b style="color:#60a5fa;">${msg.sender}:</b> <span style="color:#ddd">${msg.text}</span></div>`).join('');
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+
+            const actBtn = document.getElementById('btn-action');
+            const specBtn = document.getElementById('btn-spectate');
+
+            if (roomData.state === 'playing') {
+                specBtn.style.display = 'none';
+                actBtn.innerText = '加入观战';
+                actBtn.onclick = () => {
+                    sessionStorage.setItem('webmania_multi', 'true');
+                    sessionStorage.setItem('webmania_multi_room', JSON.stringify(roomData));
+                    sessionStorage.setItem('webmania_multi_uid', multiUid);
+                    sessionStorage.setItem('webmania_multi_role', 'spectator');
+                    
+                    if (currentMap) {
+                        const foundMap = beatmapsCache.find(b => b.title === currentMap.title && b.version === currentMap.version);
+                        if (foundMap) sessionStorage.setItem('webmania_current_map', JSON.stringify(foundMap));
+                    }
+                    roomAudio.pause();
+                    window.location.href = 'game.html';
+                };
+                actBtn.style.background = '#8b5cf6'; actBtn.style.color = '#fff';
+            } else {
+                specBtn.style.display = 'block';
+                specBtn.innerText = me.status === 'spectating' ? '停止观战' : '观战';
+                specBtn.onclick = () => socket.emit('change_status', me.status === 'spectating' ? 'idle' : 'spectating');
+                specBtn.style.color = me.status === 'spectating' ? '#c4b5fd' : '#ccc';
+                specBtn.style.borderColor = me.status === 'spectating' ? '#8b5cf6' : 'rgba(255,255,255,0.2)';
+                specBtn.style.background = me.status === 'spectating' ? 'rgba(139, 92, 246, 0.1)' : 'transparent';
+
+                if (!currentMap) {
+                    actBtn.innerText = '等待选择谱面';
+                    actBtn.onclick = null;
+                    actBtn.style.background = '#4b5563'; actBtn.style.color = '#fff';
+                } else if (me.status === 'nomap') {
+                    if (currentMap.url) {
+                        actBtn.innerText = '下载谱面';
+                        actBtn.onclick = downloadMap;
+                        actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
+                    } else {
+                        actBtn.innerText = '房主未分享该谱面';
+                        actBtn.onclick = null;
+                        actBtn.style.background = '#ef4444'; actBtn.style.color = '#fff';
+                    }
+                } else if (me.status === 'spectating' && !checkLocalMap(currentMap)) {
+                    if (currentMap.url) {
+                        actBtn.innerText = '下载谱面以观战';
+                        actBtn.onclick = downloadMap;
+                        actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
+                    } else {
+                        actBtn.innerText = '无法观战 (缺少谱面)';
+                        actBtn.onclick = null;
+                        actBtn.style.background = '#ef4444'; actBtn.style.color = '#fff';
+                    }
+                } else if (me.status === 'downloading') {
+                    actBtn.innerText = '下载中...';
+                    actBtn.onclick = null;
+                    actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
+                } else if (me.status === 'idle') {
+                    actBtn.innerText = '准备';
+                    actBtn.onclick = () => socket.emit('change_status', 'ready');
+                    actBtn.style.background = '#10b981'; actBtn.style.color = '#fff';
+                } else if (me.status === 'ready' || me.status === 'spectating') {
+                    if (isHost) {
+                        actBtn.innerText = '强制开始';
+                        actBtn.onclick = () => socket.emit('start_game');
+                        actBtn.style.background = '#d946ef'; actBtn.style.color = '#fff';
+                    } else {
+                        actBtn.innerText = me.status === 'ready' ? '取消准备' : '等待房主';
+                        actBtn.onclick = me.status === 'ready' ? () => socket.emit('change_status', 'idle') : null;
+                        actBtn.style.background = me.status === 'ready' ? '#f59e0b' : '#4b5563'; 
+                        actBtn.style.color = '#fff'; 
+                    }
+                }
+            }
+
+            window.history.replaceState({}, '', `multiplayer.html?room=${roomData.id}`);
+        }
+
+        async function downloadMap() {
+            if (!roomData || roomData.mapQueue.length === 0) return;
+            const currentMap = roomData.mapQueue[0];
+            if (!currentMap.url) return;
+
+            const previousStatus = roomData.players.find(p => p.uid === multiUid)?.status;
+            socket.emit('change_status', 'downloading');
+            const sts = document.getElementById('upload-status');
+            try {
+                sts.innerText = "正在从远程服务器下载...";
+                const res = await fetch(currentMap.url); 
+                if (!res.ok) throw new Error('文件损坏或丢失');
+                const blob = await res.blob();
+                
+                sts.innerText = "正在本地解压文件...";
+                const fd = new FormData();
+                fd.append('file', blob, 'map.osz');
+                fd.append('folderPath', localStorage.getItem('wm_folderPath'));
+                
+                await fetch(`${LOCAL_API_URL}/upload`, { method: 'POST', body: fd });
+                
+                sts.innerText = "正在同步本地数据库...";
+                const scanRes = await fetch(`${LOCAL_API_URL}/scan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderPath: localStorage.getItem('wm_folderPath'), forceRescan: true }) });
+                const scanData = await scanRes.json();
+                if(scanData.success) beatmapsCache = scanData.beatmaps || [];
+
+                sts.innerText = "完成。"; 
+                setTimeout(() => sts.innerText = "", 2000);
+                socket.emit('change_status', previousStatus === 'spectating' ? 'spectating' : 'idle'); 
+            } catch (e) { 
+                sts.innerText = "错误: " + e.message; 
+                socket.emit('change_status', 'nomap'); 
+            }
+        }
+
+        async function getFileHash(fileOrBlob) {
+            const buffer = await fileOrBlob.arrayBuffer();
+            const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        const dropZone = document.getElementById('drop-zone');
+        dropZone.ondragover = e => { e.preventDefault(); dropZone.style.borderColor = '#3b82f6'; dropZone.style.background = 'rgba(59, 130, 246, 0.1)'; };
+        dropZone.ondragleave = e => { e.preventDefault(); dropZone.style.borderColor = 'rgba(255,255,255,0.2)'; dropZone.style.background = 'transparent'; };
+        dropZone.ondrop = async e => {
+            e.preventDefault(); dropZone.style.borderColor = 'rgba(255,255,255,0.2)'; dropZone.style.background = 'transparent';
+            const file = e.dataTransfer.files[0];
+            if (!file || !file.name.endsWith('.osz')) return;
+            const sts = document.getElementById('upload-status');
+            
+            try {
+                sts.innerText = "正在检查远程服务器是否已存在该谱面...";
+                const hashHex = await getFileHash(file);
+                
+                const checkRes = await fetch(`${REMOTE_API_URL}/check_map_hash?hash=${hashHex}`);
+                const checkData = await checkRes.json();
+
+                if (checkData.exists) {
+                    sts.innerText = "触发秒传！正在添加谱面至队列...";
+                    socket.emit('add_map_to_queue', { url: checkData.data.url, title: checkData.data.title, artist: checkData.data.artist, version: checkData.data.version });
+                    setTimeout(() => sts.innerText = "", 3000);
+                    return; 
+                }
+
+                sts.innerText = "正在上传 .osz 至远程服务器...";
+                const fd = new FormData(); 
+                fd.append('file', file);
+                fd.append('hash', hashHex); 
+                
+                const res = await fetch(`${REMOTE_API_URL}/upload_room_map`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) {
+                    sts.innerText = "上传完成，已添加至队列！";
+                    socket.emit('add_map_to_queue', { url: data.url, title: data.title, artist: data.artist, version: data.version });
+                    setTimeout(() => sts.innerText = "", 2000);
+                } else throw new Error(data.error);
+            } catch (e) { sts.innerText = "错误: " + e.message; }
+        };
+
+        function openMultiMapSelector() {
+            document.getElementById('select-overlay').style.display = 'flex';
+            const iframe = document.getElementById('select-iframe');
+            if (!iframe.src) iframe.src = 'index.html?selector=true';
+        }
+
+        function closeMapSelector() {
+            document.getElementById('select-overlay').style.display = 'none';
+        }
+
+        window.addEventListener('message', async e => {
+            if (e.data && e.data.type === 'select_map') {
+                closeMapSelector();
+                const map = e.data.map;
+                const sts = document.getElementById('upload-status');
+                sts.innerText = "正在打包本地谱面文件夹...";
+
+                try {
+                    const packRes = await fetch(`${LOCAL_API_URL}/pack_map`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dirPath: map.dirPath })
+                    });
+                    
+                    if (!packRes.ok) throw new Error("本地打包失败");
+                    const blob = await packRes.blob();
+
+                    sts.innerText = "正在计算哈希值...";
+                    const hashHex = await getFileHash(blob);
+
+                    sts.innerText = "正在检查远程服务器是否已存在该谱面...";
+                    const checkRes = await fetch(`${REMOTE_API_URL}/check_map_hash?hash=${hashHex}`);
+                    const checkData = await checkRes.json();
+
+                    let finalUrl = null;
+
+                    if (checkData.exists) {
+                        sts.innerText = "触发秒传！正在添加谱面至队列...";
+                        finalUrl = checkData.data.url;
+                    } else {
+                        sts.innerText = "正在上传已打包的谱面至远程服务器...";
+                        const fd = new FormData();
+                        fd.append('file', blob, 'map.osz');
+                        fd.append('hash', hashHex);
+                        
+                        const upRes = await fetch(`${REMOTE_API_URL}/upload_room_map`, { method: 'POST', body: fd });
+                        const upData = await upRes.json();
+                        
+                        if(upData.success) {
+                            finalUrl = upData.url;
+                        } else {
+                            throw new Error(upData.error);
+                        }
+                    }
+
+                    sts.innerText = "已添加至队列！";
+                    socket.emit('add_map_to_queue', {
+                        title: map.title,
+                        artist: map.artist,
+                        version: map.version,
+                        url: finalUrl,
+                        id: map.id
+                    });
+                    
+                    setTimeout(() => sts.innerText = "", 2000);
+                } catch (err) {
+                    sts.innerText = "分享错误: " + err.message;
+                    socket.emit('add_map_to_queue', {
+                        title: map.title,
+                        artist: map.artist,
+                        version: map.version,
+                        url: null,
+                        id: map.id
+                    });
+                }
+            }
+        });
+    </script>
+</body>
+</html>
