@@ -1,0 +1,1035 @@
+// /public/js/game.js
+const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
+const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
+
+const KEY_MAP = {};
+userSettings.keyBinds.forEach((binds, laneIndex) => {
+    binds.forEach(key => {
+        if (key) KEY_MAP[key] = laneIndex;
+    });
+});
+
+let selectedMap = null;
+let currentLeaderboard = [];
+let gameEngine = null;
+let audioCtx = null;
+
+let currentInitId = 0; 
+let socket = null;
+let playerScores = {}; 
+
+const isMulti = sessionStorage.getItem('webmania_multi') === 'true';
+const role = sessionStorage.getItem('webmania_multi_role');
+const roomInfo = JSON.parse(sessionStorage.getItem('webmania_multi_room') || '{}');
+const myUid = sessionStorage.getItem('webmania_multi_uid');
+const urlParams = new URLSearchParams(window.location.search);
+const specClientUid = urlParams.get('spectate_client');
+
+const replayStr = sessionStorage.getItem('webmania_replay_data');
+const replayData = replayStr ? JSON.parse(replayStr) : null;
+const isReplayMode = !!replayData;
+
+let resumeInterval = null;
+let isResuming = false;
+let escHoldTimer = null;
+let escProgress = 0;
+let retryHoldTimer = null;
+let retryProgress = 0;
+
+window.onload = async () => {
+    const mapData = sessionStorage.getItem('webmania_current_map');
+    if (mapData) selectedMap = JSON.parse(mapData);
+    
+    if (!selectedMap && !specClientUid && role !== 'spectator') {
+        return window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
+    }
+    
+    const lbData = sessionStorage.getItem('webmania_current_leaderboard');
+    currentLeaderboard = lbData ? JSON.parse(lbData) : [];
+    
+    if (isReplayMode) {
+        document.getElementById('replay-badge').style.display = 'block';
+        document.getElementById('replay-badge').innerText = `回放: ${replayData.player}`;
+        sessionStorage.removeItem('webmania_replay_data'); 
+    }
+
+    if (isMulti) {
+        socket = new CustomSocket(); 
+        
+        if (!specClientUid) {
+            socket.emit('join_multi', { uid: myUid, username: localStorage.getItem('wm_username') });
+        } else {
+            socket.emit('join_multi', { uid: 'spec_' + Math.random().toString(36).substr(2,9), username: 'SpectatorViewer' });
+        }
+        
+        socket.emit('join_room', { roomId: roomInfo.id });
+        
+        socket.on('room_game_update', data => {
+            playerScores[data.uid] = data;
+            if (!specClientUid && !isReplayMode) updateLeaderboard();
+            else if (specClientUid === data.uid) updateSpecClientHUD(data);
+        });
+
+        socket.on('room_judge_event', data => {
+            if (specClientUid && specClientUid === data.uid && gameEngine) {
+                gameEngine.applyRemoteJudge(data);
+            }
+        });
+
+        socket.on('room_key_event', data => {
+            if (specClientUid && specClientUid === data.uid && gameEngine) {
+                if (data.type === 'down') gameEngine.onKeyDown(data.lane, gameEngine.getTime());
+                else if (data.type === 'up') gameEngine.onKeyUp(data.lane, gameEngine.getTime());
+            }
+        });
+
+        socket.on('all_finished', results => {
+            document.getElementById('waiting-overlay').style.display = 'none';
+            if (specClientUid) return; 
+            
+            showScreen('result-screen');
+            
+            if (role === 'spectator') {
+                document.getElementById('result-stats-container').style.display = 'none';
+                document.getElementById('result-grade').style.display = 'none';
+                document.querySelector('.result-title').innerText = "多人游戏结算";
+            }
+
+            const multiTable = document.getElementById('multi-res-table');
+            multiTable.style.display = 'table';
+            const tbody = multiTable.querySelector('tbody');
+            tbody.innerHTML = results.map((r, i) => `
+                <tr style="${r.uid === myUid ? 'background: rgba(59, 130, 246, 0.2)' : ''}">
+                    <td>#${i+1}</td><td><b>${r.name}</b> ${r.failed?'<span style="color:#ef4444;font-size:12px;">(失败)</span>':''}</td>
+                    <td style="color:#fbbf24; font-weight:bold;">${r.score.toString().padStart(7,'0')}</td>
+                    <td>${r.acc.toFixed(2)}%</td><td>${r.combo}x</td>
+                </tr>
+            `).join('');
+        });
+    }
+
+    if (specClientUid) {
+        document.getElementById('game-screen').classList.add('active');
+        document.body.style.background = 'transparent';
+        document.getElementById('game-screen').style.background = 'transparent';
+        
+        document.getElementById('hud-combo').style.display = 'block';
+        document.querySelector('.hud-details').style.display = 'none'; 
+        document.getElementById('multi-lb').style.display = 'none';
+        
+        document.getElementById('replay-badge').style.display = 'block';
+        const pName = roomInfo.players.find(p => p.uid === specClientUid)?.name || 'Unknown';
+        document.getElementById('replay-badge').innerText = `正在观战: ${pName}`;
+
+        await initGame(true); 
+    } 
+    else if (role === 'spectator') {
+        document.getElementById('spectator-grid').classList.add('active');
+        const players = roomInfo.players.filter(p => p.status === 'playing');
+        if (players.length === 0) {
+            document.getElementById('spectator-grid').innerHTML = '<div style="color:#aaa; margin: auto; font-size:20px; font-weight:600;">当前没有玩家在游戏中。</div>';
+        } else {
+            document.getElementById('spectator-grid').innerHTML = players.map(p => 
+                `<iframe class="spec-iframe" src="game.html?spectate_client=${p.uid}"></iframe>`
+            ).join('');
+        }
+    } 
+    else {
+        document.getElementById('game-screen').classList.add('active');
+        if(isMulti) document.getElementById('multi-lb').style.display = 'flex';
+        await initGame(false);
+    }
+};
+
+function updateSpecClientHUD(data) {
+    document.getElementById('hud-score').innerText = data.score.toString().padStart(7, '0');
+    document.getElementById('hud-combo').innerText = data.combo + 'x';
+    if(data.failed) document.getElementById('game-canvas').style.filter = 'grayscale(1)';
+}
+
+function updateLeaderboard() {
+    if(!isMulti || role === 'spectator') return;
+    const lb = document.getElementById('multi-lb');
+    const sorted = Object.values(playerScores).sort((a,b) => b.score - a.score);
+    lb.innerHTML = sorted.map((p, i) => `
+        <div class="multi-lb-item ${p.failed ? 'failed' : ''}">
+            <div><span style="color:#aaa;font-size:12px;">#${i+1}</span> <b>${roomInfo.players.find(x=>x.uid===p.uid)?.name || '?'}</b></div>
+            <div style="font-family:monospace; font-weight:bold; color:#fbbf24;">${p.score.toString().padStart(7,'0')}</div>
+        </div>
+    `).join('');
+}
+
+function getGrade(acc, failed) {
+    if (failed) return 'F';
+    if (acc === 100) return 'SS';
+    if (acc >= 95) return 'S';
+    if (acc >= 90) return 'A';
+    if (acc >= 80) return 'B';
+    if (acc >= 70) return 'C';
+    if (acc > 0) return 'D';
+    return 'F';
+}
+
+class GameEngine {
+    constructor(canvas, beatmapData, audioBuffer, audioCtx, stars, onEnd, leaderboard, isSpectator = false) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.notes = beatmapData.notes;
+        this.audioBuffer = audioBuffer;
+        this.audioCtx = audioCtx;
+        this.onEnd = onEnd;
+        this.stars = stars;
+        this.leaderboard = leaderboard || [];
+        
+        this.isSpectator = isSpectator; 
+        this.isReplay = isReplayMode; 
+
+        this.od = beatmapData.od !== undefined ? beatmapData.od : 5;
+        this.judge = {
+            max: 16,
+            p300: Math.max(16, 64 - 3 * this.od),
+            p200: Math.max(16, 97 - 3 * this.od),
+            p100: Math.max(16, 127 - 3 * this.od),
+            p50:  Math.max(16, 151 - 3 * this.od)
+        };
+
+        this.scrollSpeed = userSettings.scrollSpeed;
+        this.laneCount = 4;
+        this.trackWidth = 400 * userSettings.trackScale;
+        this.laneWidth = this.trackWidth / this.laneCount;
+        this.hitLineY = this.canvas.height - 120;
+        this.laneColors = userSettings.laneColors;
+
+        this.keys = [false, false, false, false];
+        this.isRunning = false;
+        this.isPaused = false;
+        this.audioSource = null;
+        this.startTime = 0;
+
+        this.remoteKeyEvents = this.isReplay ? [...replayData.events] : []; 
+        this.recordedEvents = []; 
+
+        this.state = {
+            combo: 0, maxCombo: 0, hp: 100, failed: false,
+            stats: { max: 0, p300: 0, p200: 0, p100: 0, p50: 0, miss: 0 },
+            totalBasePossible: 0, currentBase: 0, acc: 100,
+            scoreV2: 0, hitErrors: [], allHitErrors: [], currentPP: 0, effect: null
+        };
+
+        let totalJudgements = 0;
+        let maxTime = 0;
+        this.notes.forEach(n => { 
+            totalJudgements += (n.type === 'hold' ? 2 : 1); 
+            const t = n.type === 'hold' ? n.endTime : n.time;
+            if (t > maxTime) maxTime = t;
+        });
+        this.state.totalBasePossible = totalJudgements * SCORES.max;
+        this.lastNoteTime = maxTime;
+        this.totalLengthMs = maxTime;
+
+        this.hudScore = document.getElementById('hud-score');
+        this.hudAcc = document.getElementById('hud-acc');
+        this.hudPP = document.getElementById('hud-pp');
+        this.hudUR = document.getElementById('hud-ur');
+        this.hudRank = document.getElementById('hud-rank');
+        this.progressBar = document.getElementById('song-progress-bar');
+
+        this.lastMultiSend = 0;
+
+        this.hudScore.innerText = '0000000';
+        this.hudAcc.innerText = '100.00%';
+        this.hudPP.innerText = '0';
+        this.hudUR.innerText = '0.00';
+        this.hudRank.innerText = '';
+        document.getElementById('hud-combo').style.display = 'none';
+        document.getElementById('hud-combo').innerText = '0x';
+        document.getElementById('game-canvas').style.filter = 'none';
+        this.progressBar.style.width = '0%';
+    }
+
+    start() {
+        this.audioSource = this.audioCtx.createBufferSource();
+        this.audioSource.buffer = this.audioBuffer;
+        this.audioSource.connect(this.audioCtx.destination);
+        
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+        this.startTime = this.audioCtx.currentTime;
+        this.audioSource.start(0);
+        this.isRunning = true;
+        this.isPaused = false;
+        requestAnimationFrame(this.loop.bind(this));
+    }
+
+    pause() {
+        if (isMulti) return; 
+        if (!this.isRunning || this.isPaused) return;
+        this.isPaused = true;
+        if (this.audioCtx.state === 'running') this.audioCtx.suspend();
+        
+        if (window.videoPlayer) window.videoPlayer.pause();
+        
+        document.getElementById('pause-screen').classList.add('active');
+        document.getElementById('pause-title').style.display = 'block';
+        document.getElementById('pause-buttons').style.display = 'flex';
+        document.getElementById('pause-countdown-text').style.display = 'none';
+    }
+
+    quit() {
+        this.isRunning = false;
+        if (this.audioSource) { try { this.audioSource.stop(); this.audioSource.disconnect(); } catch(e) {} }
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+    }
+
+    endGame() {
+        this.quit();
+        
+        if (this.state.allHitErrors.length > 0 && !this.state.failed) {
+            let sum = 0;
+            for (let d of this.state.allHitErrors) sum += d;
+            localStorage.setItem('webmania_last_error', Math.round(sum / this.state.allHitErrors.length));
+        }
+
+        if(this.onEnd) this.onEnd({
+            failed: this.state.failed,
+            acc: this.state.acc,
+            score: this.state.scoreV2,
+            pp: this.state.currentPP,
+            combo: this.state.maxCombo,
+            stats: this.state.stats,
+            grade: getGrade(this.state.acc, this.state.failed)
+        });
+    }
+
+    getTime() { return ((this.audioCtx.currentTime - this.startTime) * 1000) - userSettings.offset; }
+
+    addJudge(type, diff = 0, lane = -1, isTail = false) {
+        if(this.state.failed && type === 'miss') return; 
+        
+        this.state.stats[type]++;
+        if (type !== 'miss') {
+            this.state.hitErrors.push({ diff: diff, time: this.getTime() });
+            if (this.state.hitErrors.length > 50) this.state.hitErrors.shift();
+            this.state.allHitErrors.push(diff);
+        }
+
+        if (type === 'miss') this.state.combo = 0;
+        else { this.state.combo++; if (this.state.combo > this.state.maxCombo) this.state.maxCombo = this.state.combo; }
+        
+        this.state.hp = Math.min(100, Math.max(0, this.state.hp + HP_MOD[type]));
+        
+        if (this.state.hp <= 0 && !this.state.failed) {
+            this.state.failed = true;
+            if (!this.isSpectator) document.getElementById('game-canvas').style.filter = 'grayscale(1)';
+            if (!isMulti && !this.isReplay) {
+                this.endGame(); return; 
+            }
+        }
+
+        this.addEffect(type);
+
+        if (!this.isSpectator && !this.isReplay && isMulti) {
+            socket.emit('judge_event', {
+                judgeType: type, diff, lane, isTail, time: this.getTime(),
+                hp: this.state.hp, combo: this.state.combo, maxCombo: this.state.maxCombo,
+                score: this.state.scoreV2, acc: this.state.acc, pp: this.state.currentPP,
+                stats: this.state.stats
+            });
+        }
+
+        if (this.isSpectator) return; 
+
+        let totalJudged = this.state.stats.max + this.state.stats.p300 + this.state.stats.p200 + this.state.stats.p100 + this.state.stats.p50 + this.state.stats.miss;
+        let currentBase = this.state.stats.max * SCORES.max + this.state.stats.p300 * SCORES.p300 + this.state.stats.p200 * SCORES.p200 + this.state.stats.p100 * SCORES.p100 + this.state.stats.p50 * SCORES.p50;
+        
+        this.state.acc = totalJudged === 0 ? 100 : (currentBase / (totalJudged * SCORES.max)) * 100;
+        
+        if (this.state.totalBasePossible > 0) {
+            let maxBase = this.state.totalBasePossible;
+            let accScore = Math.floor(700000 * (currentBase / maxBase)); 
+            let totalObj = this.notes.length * 2; 
+            let comboBonus = Math.floor(300000 * (this.state.maxCombo / totalObj));
+            this.state.scoreV2 = accScore + comboBonus;
+        }
+
+        let score = this.state.scoreV2;
+        let baseStrain = Math.pow(5 * Math.max(1, this.stars / 0.2) - 4, 2.2) / 135.0;
+        let lengthBonus = 1.0 + 0.1 * Math.min(1.0, this.notes.length / 1500.0);
+        
+        let scoreMultiplier = 0;
+        if (score <= 500000) scoreMultiplier = 0;
+        else if (score <= 600000) scoreMultiplier = (score - 500000) / 100000 * 0.3;
+        else if (score <= 700000) scoreMultiplier = 0.3 + (score - 600000) / 100000 * 0.25;
+        else if (score <= 800000) scoreMultiplier = 0.55 + (score - 700000) / 100000 * 0.2;
+        else if (score <= 900000) scoreMultiplier = 0.75 + (score - 800000) / 100000 * 0.15;
+        else scoreMultiplier = 0.9 + (score - 900000) / 100000 * 0.1;
+        
+        let accMultiplier = Math.pow(this.state.acc / 100, 2);
+        let finalPP = baseStrain * lengthBonus * scoreMultiplier * accMultiplier * 0.8;
+        this.state.currentPP = Math.floor(finalPP);
+
+        this.updateHUD();
+    }
+
+    applyRemoteJudge(data) {
+        this.state.hp = data.hp;
+        this.state.combo = data.combo;
+        this.state.maxCombo = data.maxCombo;
+        this.state.scoreV2 = data.score;
+        this.state.acc = data.acc;
+        this.state.currentPP = data.pp;
+        this.state.stats = data.stats;
+
+        if (data.judgeType !== 'miss') {
+            this.state.hitErrors.push({ diff: data.diff, time: this.getTime() });
+            if (this.state.hitErrors.length > 50) this.state.hitErrors.shift();
+        }
+
+        this.addEffect(data.judgeType);
+        this.updateHUD();
+
+        if (data.lane >= 0) {
+            let target = null, minDiff = Infinity;
+            for (let i = 0; i < this.notes.length; i++) {
+                const note = this.notes[i];
+                if (note.column !== data.lane) continue;
+                
+                if (!data.isTail && !note.headJudged) {
+                    const d = Math.abs(note.time - data.time);
+                    if (d < minDiff) { minDiff = d; target = note; }
+                } else if (data.isTail && note.type === 'hold' && note.headJudged && !note.tailJudged) {
+                    const d = Math.abs(note.endTime - data.time);
+                    if (d < minDiff) { minDiff = d; target = note; }
+                }
+            }
+            if (target) {
+                if (!data.isTail) {
+                    target.headJudged = true;
+                    if (target.type === 'hold' && data.judgeType !== 'miss') target.isHolding = true;
+                } else {
+                    target.tailJudged = true;
+                    target.isHolding = false;
+                }
+            }
+        }
+    }
+
+    calculateUR() {
+        if (this.state.hitErrors.length === 0) return 0;
+        let sum = 0; for (let h of this.state.hitErrors) sum += h.diff;
+        let mean = sum / this.state.hitErrors.length;
+        let varianceSum = 0; for (let h of this.state.hitErrors) varianceSum += Math.pow(h.diff - mean, 2);
+        return Math.sqrt(varianceSum / this.state.hitErrors.length) * 10;
+    }
+
+    updateHUD() {
+        this.hudScore.innerText = this.state.scoreV2.toString().padStart(7, '0');
+        this.hudAcc.innerText = this.state.acc.toFixed(2) + '%';
+        this.hudPP.innerText = this.state.currentPP;
+        this.hudUR.innerText = this.calculateUR().toFixed(2);
+        if (!isMulti && !this.isReplay && this.leaderboard.length > 0 && this.state.scoreV2 > 0) {
+            let rank = 1; for (let s of this.leaderboard) { if (this.state.scoreV2 < s._realScore) rank++; }
+            this.hudRank.innerText = '#' + rank;
+        } else {
+            this.hudRank.innerText = '';
+        }
+    }
+
+    addEffect(type) {
+        const colors = { max: '#ffffff', p300: '#fbbf24', p200: '#34d399', p100: '#60a5fa', p50: '#a78bfa', miss: '#ef4444' };
+        const texts = { max: 'MAX', p300: '300', p200: '200', p100: '100', p50: '50', miss: 'MISS' };
+        this.state.effect = { text: texts[type], color: colors[type], life: 1, scale: 0.5, type: type };
+    }
+
+    onKeyDown(lane, forcedTime = null) {
+        if (!this.isRunning || this.isPaused) return;
+        
+        this.keys[lane] = true;
+        const now = forcedTime !== null ? forcedTime : this.getTime();
+
+        if (!this.isSpectator && !this.isReplay && isMulti) {
+            socket.emit('key_event', { type: 'down', lane, time: now });
+        }
+
+        if (this.isSpectator) return; 
+
+        if (!this.isReplay && forcedTime === null) {
+            this.recordedEvents.push({ type: 'down', lane, time: now });
+        }
+
+        let target = null, minDiff = Infinity;
+        for (let i = 0; i < this.notes.length; i++) {
+            const note = this.notes[i];
+            if (note.column !== lane || note.headJudged) continue;
+            const diff = note.time - now;
+            if (diff > this.judge.p50) break; 
+            if (Math.abs(diff) <= this.judge.p50 && Math.abs(diff) < minDiff) { minDiff = Math.abs(diff); target = note; }
+        }
+
+        if (target) {
+            const diff = now - target.time;
+            const absDiff = Math.abs(diff);
+            let j = 'miss';
+            if (absDiff <= this.judge.max) j = 'max'; else if (absDiff <= this.judge.p300) j = 'p300'; else if (absDiff <= this.judge.p200) j = 'p200'; else if (absDiff <= this.judge.p100) j = 'p100'; else if (absDiff <= this.judge.p50) j = 'p50';
+            target.headJudged = true;
+            if (target.type === 'hold' && j !== 'miss') target.isHolding = true;
+            this.addJudge(j, diff, lane, false); 
+        }
+    }
+
+    onKeyUp(lane, forcedTime = null) {
+        if (!this.isRunning || this.isPaused) return;
+
+        this.keys[lane] = false;
+        const now = forcedTime !== null ? forcedTime : this.getTime();
+
+        if (!this.isSpectator && !this.isReplay && isMulti) {
+            socket.emit('key_event', { type: 'up', lane, time: now });
+        }
+
+        if (this.isSpectator) return; 
+
+        if (!this.isReplay && forcedTime === null) {
+            this.recordedEvents.push({ type: 'up', lane, time: now });
+        }
+
+        for (let i = 0; i < this.notes.length; i++) {
+            const note = this.notes[i];
+            if (note.column === lane && note.type === 'hold' && note.isHolding && !note.tailJudged) {
+                note.isHolding = false; note.tailJudged = true;
+                const diff = now - note.endTime;
+                if (diff < -this.judge.p50) this.addJudge('miss', diff, lane, true);
+                else {
+                    const absDiff = Math.abs(diff); let j = 'miss';
+                    if (absDiff <= this.judge.max) j = 'max'; else if (absDiff <= this.judge.p300) j = 'p300'; else if (absDiff <= this.judge.p200) j = 'p200'; else if (absDiff <= this.judge.p100) j = 'p100'; else if (absDiff <= this.judge.p50) j = 'p50';
+                    this.addJudge(j, diff, lane, true); 
+                }
+                break;
+            }
+        }
+    }
+
+    loop() {
+        if (!this.isRunning || this.isPaused) return;
+        const now = this.getTime();
+        
+        if (this.totalLengthMs > 0) {
+            let prog = (now / this.totalLengthMs) * 100;
+            if (prog > 100) prog = 100;
+            if (prog < 0) prog = 0;
+            this.progressBar.style.width = prog + '%';
+        }
+
+        if (isMulti && !this.isSpectator && !this.isReplay && now - this.lastMultiSend > 100) {
+            socket.emit('game_update', { score: this.state.scoreV2, combo: this.state.combo, acc: this.state.acc, maxCombo: this.state.maxCombo, failed: this.state.failed });
+            this.lastMultiSend = now;
+        }
+
+        if (now > this.lastNoteTime + 1500) { this.endGame(); return; }
+
+        if (this.isReplay) {
+            while (this.remoteKeyEvents.length > 0 && this.remoteKeyEvents[0].time <= now) {
+                const evt = this.remoteKeyEvents.shift();
+                if (evt.type === 'down') this.onKeyDown(evt.lane, evt.time);
+                else if (evt.type === 'up') this.onKeyUp(evt.lane, evt.time);
+            }
+        }
+
+        const missThreshold = (this.isSpectator || this.isReplay) ? this.judge.p50 + 400 : this.judge.p50;
+
+        if (!this.isSpectator) {
+            for (let i = 0; i < this.notes.length; i++) {
+                const note = this.notes[i];
+                if (!note.headJudged && now > note.time + missThreshold) { 
+                    note.headJudged = true; this.addJudge('miss', missThreshold, note.column, false); 
+                }
+                if (note.type === 'hold' && note.headJudged && note.isHolding && now > note.endTime + missThreshold && !note.tailJudged) {
+                    note.tailJudged = true; note.isHolding = false; this.addJudge('miss', missThreshold, note.column, true);
+                }
+            }
+        }
+
+        this.draw(now);
+        requestAnimationFrame(this.loop.bind(this));
+    }
+
+    draw(now) {
+        const ctx = this.ctx, canvas = this.canvas;
+        const offsetX = (canvas.width - this.trackWidth) / 2;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'rgba(10,10,15,0.85)';
+        ctx.fillRect(offsetX, 0, this.trackWidth, canvas.height);
+
+        ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
+        for (let i = 1; i < this.laneCount; i++) {
+            ctx.beginPath(); ctx.moveTo(offsetX + i * this.laneWidth, 0); ctx.lineTo(offsetX + i * this.laneWidth, canvas.height); ctx.stroke();
+        }
+
+        ctx.fillStyle = '#60a5fa'; ctx.fillRect(offsetX, this.hitLineY, this.trackWidth, 4);
+
+        for (let i = 0; i < this.laneCount; i++) {
+            if (this.keys[i]) { 
+                ctx.fillStyle = this.laneColors[i]; 
+                ctx.globalAlpha = 0.2;
+                ctx.fillRect(offsetX + i * this.laneWidth, this.hitLineY, this.laneWidth, canvas.height - this.hitLineY); 
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        for (let i = this.notes.length - 1; i >= 0; i--) {
+            const note = this.notes[i]; const color = this.laneColors[note.column]; const x = offsetX + note.column * this.laneWidth;
+            if (note.type === 'hold') {
+                if (note.tailJudged) continue;
+                let startY = this.hitLineY - ((note.time - now) / 1000) * this.scrollSpeed;
+                let endY = this.hitLineY - ((note.endTime - now) / 1000) * this.scrollSpeed;
+                if (note.isHolding) startY = this.hitLineY;
+                if (startY > 0 && endY < canvas.height) {
+                    ctx.globalAlpha = 0.5; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = 1.0;
+                    if (!note.headJudged) { ctx.fillStyle = '#fff'; ctx.fillRect(x + 2, startY - 15, this.laneWidth - 4, 15); }
+                    ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, 15);
+                }
+            } else {
+                if (note.headJudged) continue;
+                const y = this.hitLineY - ((note.time - now) / 1000) * this.scrollSpeed;
+                if (y > -20 && y < canvas.height + 20) {
+                    ctx.fillStyle = color; ctx.fillRect(x + 2, y - 15, this.laneWidth - 4, 15);
+                    ctx.fillStyle = '#fff'; ctx.fillRect(x + 8, y - 10, this.laneWidth - 16, 5);
+                }
+            }
+        }
+
+        ctx.textAlign = 'center';
+        
+        if (this.state.combo > 5) {
+            ctx.font = '800 50px Segoe UI'; ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillText(this.state.combo, canvas.width / 2, canvas.height / 2 - 40);
+            ctx.font = '600 20px Segoe UI'; ctx.fillText('COMBO', canvas.width / 2, canvas.height / 2 - 10);
+        }
+
+        if (this.state.effect) {
+            const ef = this.state.effect;
+            ctx.font = `800 ${30 * ef.scale}px Segoe UI`; ctx.fillStyle = ef.color; ctx.globalAlpha = ef.life;
+            if(ef.type === 'max') { ctx.shadowBlur = 10; ctx.shadowColor = `hsl(${now % 360}, 100%, 50%)`; ctx.fillStyle = '#ffffff'; } else ctx.shadowBlur = 0;
+            ctx.fillText(ef.text, canvas.width / 2, this.hitLineY - 100 - (1 - ef.life) * 30);
+            ctx.globalAlpha = 1.0; ctx.shadowBlur = 0; ef.scale += 0.05; ef.life -= 0.04; if (ef.life <= 0) this.state.effect = null;
+        }
+
+        const meterY = this.hitLineY + 60; const xC = canvas.width / 2; const scale = 1.5; 
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(xC - (150 * scale), meterY - 5, 300 * scale, 10);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(xC - 1, meterY - 8, 2, 16); 
+        ctx.fillStyle = '#fbbf24'; ctx.fillRect(xC - (this.judge.p300 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p300 * scale), meterY - 5, 1, 10);
+        ctx.fillStyle = '#60a5fa'; ctx.fillRect(xC - (this.judge.p100 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p100 * scale), meterY - 5, 1, 10);
+        for (let i = 0; i < this.state.hitErrors.length; i++) {
+            const err = this.state.hitErrors[i]; const age = now - err.time;
+            if (age > 3000) continue; 
+            let alpha = 1 - (age / 3000); let absErr = Math.abs(err.diff); let color = '#60a5fa';
+            if (absErr <= this.judge.max) color = '#ffffff'; else if (absErr <= this.judge.p300) color = '#fbbf24'; else if (absErr <= this.judge.p200) color = '#34d399'; else if (absErr <= this.judge.p100) color = '#60a5fa'; else color = '#a78bfa';
+            ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillRect(xC + (err.diff * scale) - 2, meterY - 8, 4, 16);
+        }
+        ctx.globalAlpha = 1.0;
+
+        ctx.fillStyle = '#111'; ctx.fillRect(offsetX, 0, this.trackWidth, 10);
+        ctx.fillStyle = this.state.hp > 20 ? '#10b981' : '#ef4444'; ctx.fillRect(offsetX, 0, (this.state.hp / 100) * this.trackWidth, 10);
+    }
+}
+
+async function initGame(isSpectating) {
+    const initId = ++currentInitId; 
+
+    try {
+        const gameBgEl = document.getElementById('game-bg');
+        const videoCanvas = document.getElementById('bg-video-canvas');
+
+        let filterStr = `brightness(${(100 - userSettings.bgDim) / 100})`;
+        if (userSettings.bgBlur > 0) filterStr += ` blur(${userSettings.bgBlur}px)`;
+
+        if (selectedMap.bgPath) {
+            const bgUrl = `${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.bgPath)}`;
+            gameBgEl.style.backgroundImage = `url("${bgUrl}")`;
+            gameBgEl.style.filter = filterStr;
+        }
+
+        if (!selectedMap.audioPath) {
+            alert('音频加载失败。');
+            window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
+            return;
+        }
+
+        const osuRes = await fetch(`${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.osuPath)}`);
+        if (initId !== currentInitId) return; 
+        const osuText = await osuRes.text();
+        if (initId !== currentInitId) return; 
+        const parsed = parseOsuFile(osuText);
+
+        if (parsed.videoPath) {
+            const cleanVideoPath = parsed.videoPath.trim();
+            const fullVideoPath = selectedMap.dirPath + '/' + cleanVideoPath;
+            
+            gameBgEl.style.display = 'none';
+            videoCanvas.style.display = 'block';
+            videoCanvas.style.filter = filterStr;
+
+            const streamUrl = `${LOCAL_API_URL}/video_stream?path=${encodeURIComponent(fullVideoPath)}`;
+            if (window.videoPlayer) window.videoPlayer.destroy();
+            
+            class FetchStreamSource {
+                constructor(url, options) {
+                    this.url = url;
+                    this.destination = null;
+                }
+                connect(destination) { this.destination = destination; }
+                start() {
+                    fetch(this.url).then(res => {
+                        const reader = res.body.getReader();
+                        const pump = () => {
+                            reader.read().then(({value, done}) => {
+                                if (done) return;
+                                if (this.destination) this.destination.write(value);
+                                pump();
+                            });
+                        };
+                        pump();
+                    }).catch(console.error);
+                }
+                resume() {}
+                destroy() {}
+            }
+
+            window.videoPlayer = new JSMpeg.Player(streamUrl, {
+                canvas: videoCanvas,
+                source: FetchStreamSource, 
+                loop: true,
+                autoplay: true,
+                audio: false 
+            });
+        } else {
+            videoCanvas.style.display = 'none'; 
+            gameBgEl.style.display = 'block'; 
+            if (window.videoPlayer) {
+                window.videoPlayer.destroy();
+                window.videoPlayer = null;
+            }
+        }
+
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioRes = await fetch(`${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.audioPath)}`);
+        if (initId !== currentInitId) return;
+        const arrayBuffer = await audioRes.arrayBuffer();
+        if (initId !== currentInitId) return;
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        if (initId !== currentInitId) return;
+        
+        const canvas = document.getElementById('game-canvas');
+
+        if (gameEngine) gameEngine.quit();
+
+        gameEngine = new GameEngine(
+            canvas, parsed, audioBuffer, audioCtx, 
+            selectedMap.stars || getFakeStars(selectedMap.version), 
+            onGameEnd, currentLeaderboard, isSpectating
+        );
+        gameEngine.start();
+    } catch (e) {
+        if (initId === currentInitId) { 
+            alert('谱面加载失败: ' + e.message);
+            window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
+        }
+    }
+}
+
+function parseOsuFile(osuText) {
+    const lines = osuText.split(/\r?\n/);
+    let section = '', bpm = 0, hp = 0, od = 5, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
+    const notes = [];
+    
+    for (let line of lines) {
+        line = line.trim();
+        if (line.startsWith('[')) { section = line; continue; }
+        if (!line) continue;
+        
+        if (section === '[General]') { if (line.startsWith('PreviewTime:')) previewTime = parseInt(line.split(':')[1].trim()); } 
+        else if (section === '[Difficulty]') { 
+            if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim()); 
+            if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
+        } 
+        else if (section === '[Events]') {
+            const parts = line.split(',');
+            if (parts[0] === 'Video' || parts[0] === '1') {
+                if (parts.length >= 3) {
+                    videoPath = parts[2].replace(/"/g, '').trim();
+                }
+            }
+        } 
+        else if (section === '[TimingPoints]') { let parts = line.split(','); if (parts.length >= 2) { let bl = parseFloat(parts[1]); if (bl > 0) beatLengths.push(bl); } } 
+        else if (section === '[HitObjects]') {
+            const parts = line.split(',');
+            if (parts.length >= 5) {
+                const x = parseInt(parts[0]), time = parseInt(parts[2]), type = parseInt(parts[3]), column = Math.floor(x / (512 / 4));
+                if (column >= 0 && column < 4) {
+                    if ((type & 128) !== 0) {
+                        const endTime = parseInt(parts[5].split(':')[0]);
+                        notes.push({ type: 'hold', time, endTime, column, headJudged: false, tailJudged: false, isHolding: false });
+                        holdCount++;
+                    } else {
+                        notes.push({ type: 'tap', time, column, headJudged: false }); noteCount++;
+                    }
+                }
+            }
+        }
+    }
+    if (beatLengths.length > 0) bpm = Math.round(60000 / beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop());
+    return { notes: notes.sort((a,b) => a.time - b.time), bpm, hp, od, previewTime, noteCount, holdCount, videoPath };
+}
+
+function animateValue(obj, start, end, duration, formatStr = false) {
+    let startTimestamp = null;
+    const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        const easeProgress = progress * (2 - progress); 
+        const current = start + (end - start) * easeProgress;
+        
+        if (formatStr) obj.innerText = formatStr(current);
+        else obj.innerText = Math.floor(current);
+
+        if (progress < 1) window.requestAnimationFrame(step);
+    };
+    window.requestAnimationFrame(step);
+}
+
+function onGameEnd(result) {
+    if (window.videoPlayer) {
+        window.videoPlayer.destroy();
+        window.videoPlayer = null;
+    }
+
+    if (!isMulti && !isReplayMode && gameEngine && gameEngine.recordedEvents.length > 0) {
+        const folderPath = localStorage.getItem('wm_folderPath');
+        const scorePayload = {
+            folderPath: folderPath,
+            mapId: selectedMap.id,
+            scoreData: {
+                player: localStorage.getItem('wm_username') || 'Unknown Player',
+                score: result.score,
+                combo: result.combo,
+                acc: result.acc,
+                grade: result.grade,
+                replay: gameEngine.recordedEvents
+            }
+        };
+        fetch(`${LOCAL_API_URL}/local_scores`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(scorePayload)
+        }).catch(e => console.error("归档失败:", e));
+    }
+    
+    if (isMulti) {
+        socket.emit('multi_game_end', { score: result.score, combo: result.combo, acc: result.acc, failed: result.failed });
+        document.getElementById('waiting-overlay').style.display = 'flex';
+    } else {
+        showScreen('result-screen');
+    }
+
+    if (isReplayMode) document.querySelector('.result-title').innerText = "回放结束";
+
+    if (selectedMap && !specClientUid && role !== 'spectator') {
+        document.getElementById('res-meta-title').innerText = selectedMap.title;
+        document.getElementById('res-meta-artist').innerText = selectedMap.artist + " // " + selectedMap.version;
+        const stars = selectedMap.stars || getFakeStars(selectedMap.version);
+        document.getElementById('res-meta-stars').innerText = stars.toFixed(2) + ' ★';
+        document.getElementById('res-meta-stars').style.color = getStarColor(stars);
+        if (selectedMap.bgPath) {
+            document.getElementById('res-bg-container').style.backgroundImage = `url("${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.bgPath)}")`;
+        }
+    }
+
+    const gradeEl = document.getElementById('result-grade');
+    const failedEl = document.getElementById('result-failed');
+    const statsContainer = document.getElementById('result-stats-container');
+
+    gradeEl.classList.remove('show');
+    gradeEl.className = `result-grade color-${result.grade.toLowerCase()}`;
+    gradeEl.innerText = result.grade;
+
+    if (result.failed) {
+        failedEl.style.display = 'block'; gradeEl.style.display = 'none'; statsContainer.style.opacity = '0.5';
+    } else {
+        failedEl.style.display = 'none'; gradeEl.style.display = 'block'; statsContainer.style.opacity = '1';
+        if (result.grade !== 'F' && !isMulti && !isReplayMode) { 
+            const histKey = selectedMap.id;
+            const ranks = { 'SS':6, 'S':5, 'A':4, 'B':3, 'C':2, 'D':1, 'F':0 };
+            const oldRank = history[histKey] ? ranks[history[histKey]] : -1;
+            if (ranks[result.grade] > oldRank) { history[histKey] = result.grade; localStorage.setItem('webmania_history', JSON.stringify(history)); }
+        }
+    }
+
+    let totalNotes = result.stats.max + result.stats.p300 + result.stats.p200 + result.stats.p100 + result.stats.p50 + result.stats.miss;
+    if (totalNotes === 0) totalNotes = 1;
+
+    animateValue(document.getElementById('res-max'), 0, result.stats.max, 1500);
+    document.getElementById('bar-max').style.width = (result.stats.max / totalNotes * 100) + '%';
+    animateValue(document.getElementById('res-300'), 0, result.stats.p300, 1500);
+    document.getElementById('bar-300').style.width = (result.stats.p300 / totalNotes * 100) + '%';
+    animateValue(document.getElementById('res-200'), 0, result.stats.p200, 1500);
+    document.getElementById('bar-200').style.width = (result.stats.p200 / totalNotes * 100) + '%';
+    animateValue(document.getElementById('res-100'), 0, result.stats.p100, 1500);
+    document.getElementById('bar-100').style.width = (result.stats.p100 / totalNotes * 100) + '%';
+    animateValue(document.getElementById('res-50'), 0, result.stats.p50, 1500);
+    document.getElementById('bar-50').style.width = (result.stats.p50 / totalNotes * 100) + '%';
+    animateValue(document.getElementById('res-miss'), 0, result.stats.miss, 1500);
+    document.getElementById('bar-miss').style.width = (result.stats.miss / totalNotes * 100) + '%';
+
+    animateValue(document.getElementById('res-score'), 0, result.score, 2000);
+    animateValue(document.getElementById('res-combo'), 0, result.combo, 1500, val => Math.floor(val) + 'x');
+    animateValue(document.getElementById('res-pp'), 0, result.pp, 2000);
+
+    let simulatedRank = '-';
+    if (!isMulti && !isReplayMode && currentLeaderboard.length > 0 && result.score > 0) {
+        let rank = 1; for (let s of currentLeaderboard) { if (result.score < s._realScore) rank++; }
+        simulatedRank = '#' + rank;
+    }
+    document.getElementById('res-rank').innerText = simulatedRank;
+
+    animateValue(document.getElementById('res-acc'), 0, result.acc, 2000, val => val.toFixed(2) + '%');
+    setTimeout(() => { gradeEl.classList.add('show'); }, 500);
+}
+
+function resumeGame() {
+    isResuming = true;
+    document.getElementById('pause-title').style.display = 'none'; 
+    document.getElementById('pause-buttons').style.display = 'none';
+    const countdownEl = document.getElementById('pause-countdown-text'); 
+    countdownEl.style.display = 'block';
+    
+    let count = 3; 
+    countdownEl.innerText = count;
+    
+    resumeInterval = setInterval(() => {
+        count--;
+        if (count > 0) {
+            countdownEl.innerText = count;
+        } else {
+            clearInterval(resumeInterval); 
+            isResuming = false;
+            document.getElementById('pause-screen').classList.remove('active');
+            if (gameEngine) {
+                gameEngine.isPaused = false;
+                if (gameEngine.audioCtx.state === 'suspended') gameEngine.audioCtx.resume();
+                if (window.videoPlayer) window.videoPlayer.play();
+                requestAnimationFrame(gameEngine.loop.bind(gameEngine));
+            }
+        }
+    }, 1000);
+}
+
+function retryGame() { 
+    if(isResuming) clearInterval(resumeInterval);
+    isResuming = false;
+    document.getElementById('pause-screen').classList.remove('active'); 
+    if (window.videoPlayer) { window.videoPlayer.destroy(); window.videoPlayer = null; }
+    
+    if (gameEngine) {
+        gameEngine.quit();
+        gameEngine = null; 
+    }
+    
+    document.getElementById('hud-score').innerText = '0000000';
+    document.getElementById('hud-acc').innerText = '100.00%';
+    document.getElementById('hud-pp').innerText = '0';
+    document.getElementById('hud-ur').innerText = '0.00';
+    document.getElementById('hud-rank').innerText = '';
+    document.getElementById('hud-combo').style.display = 'none';
+    document.getElementById('hud-combo').innerText = '0x';
+    document.getElementById('game-canvas').style.filter = 'none';
+    document.getElementById('song-progress-bar').style.width = '0%';
+
+    initGame(false); 
+}
+
+function quitGame() { 
+    if(isResuming) clearInterval(resumeInterval);
+    isResuming = false;
+    document.getElementById('pause-screen').classList.remove('active'); 
+    if (window.videoPlayer) { window.videoPlayer.destroy(); window.videoPlayer = null; }
+    
+    if (gameEngine) {
+        gameEngine.quit(); 
+        gameEngine = null;
+    }
+    
+    window.location.href = isMulti ? 'multiplayer.html' : 'index.html'; 
+}
+
+document.getElementById('back-to-select').onclick = () => window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
+
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'Escape' && gameEngine && gameEngine.isRunning) {
+        if (isMulti) {
+            if (!escHoldTimer) {
+                document.getElementById('esc-progress-overlay').style.display = 'flex';
+                escHoldTimer = setInterval(() => {
+                    escProgress += 5; 
+                    document.getElementById('esc-bar').style.width = escProgress + '%';
+                    if (escProgress >= 100) { quitGame(); clearInterval(escHoldTimer); }
+                }, 50);
+            }
+        } else {
+            if (!gameEngine.isPaused) {
+                gameEngine.pause();
+            } else {
+                if (isResuming) {
+                    clearInterval(resumeInterval);
+                    isResuming = false;
+                    document.getElementById('pause-countdown-text').style.display = 'none';
+                    document.getElementById('pause-title').style.display = 'block';
+                    document.getElementById('pause-buttons').style.display = 'flex';
+                } else {
+                    resumeGame();
+                }
+            }
+        }
+    }
+
+    if (e.code === 'Backquote' && gameEngine && gameEngine.isRunning && !isMulti && !isReplayMode) {
+        if (!retryHoldTimer) {
+            document.getElementById('retry-progress-overlay').style.display = 'flex';
+            retryHoldTimer = setInterval(() => {
+                retryProgress += 5;
+                document.getElementById('retry-bar').style.width = retryProgress + '%';
+                if (retryProgress >= 100) {
+                    retryGame();
+                    clearInterval(retryHoldTimer);
+                    retryHoldTimer = null;
+                    retryProgress = 0;
+                    document.getElementById('retry-progress-overlay').style.display = 'none';
+                    document.getElementById('retry-bar').style.width = '0%';
+                }
+            }, 20);
+        }
+    }
+
+    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning) { 
+        if (!e.repeat && !isReplayMode) gameEngine.onKeyDown(KEY_MAP[e.code]); 
+    }
+});
+
+window.addEventListener('keyup', (e) => { 
+    if (e.code === 'Escape' && isMulti) {
+        clearInterval(escHoldTimer);
+        escHoldTimer = null;
+        escProgress = 0;
+        document.getElementById('esc-progress-overlay').style.display = 'none';
+        document.getElementById('esc-bar').style.width = '0%';
+    }
+    if (e.code === 'Backquote' && !isMulti && !isReplayMode) {
+        if (retryHoldTimer) {
+            clearInterval(retryHoldTimer);
+            retryHoldTimer = null;
+            retryProgress = 0;
+            document.getElementById('retry-progress-overlay').style.display = 'none';
+            document.getElementById('retry-bar').style.width = '0%';
+        }
+    }
+    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode) {
+        gameEngine.onKeyUp(KEY_MAP[e.code]); 
+    }
+});
