@@ -1,4 +1,4 @@
-// /client/server.js
+// /server.js
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -27,8 +27,8 @@ const upload = multer({ dest: tempUploadsDir });
 function parseOsuMetadataFromString(content) {
     const lines = content.split(/\r?\n/);
     let section = '';
-    const metadata = { title: 'Unknown', artist: 'Unknown', version: 'Normal', bg: '', stars: 0, audio: '', bpm: 0, od: 5 };
-    let mode = 0, circleSize = 0;
+    const metadata = { title: 'Unknown', artist: 'Unknown', version: 'Normal', bg: '', stars: 0, audio: '', bpm: 0, od: 5, cs: 4 };
+    let mode = 0, circleSize = 4;
     
     let inHitObjects = false;
     let objCount = 0;
@@ -52,7 +52,10 @@ function parseOsuMetadataFromString(content) {
             if (line.startsWith('Artist:')) metadata.artist = line.split(':')[1].trim();
             if (line.startsWith('Version:')) metadata.version = line.split(':')[1].trim();
         } else if (section === 'Difficulty') {
-            if (line.startsWith('CircleSize:')) circleSize = parseFloat(line.split(':')[1]);
+            if (line.startsWith('CircleSize:')) {
+                circleSize = parseFloat(line.split(':')[1]);
+                metadata.cs = circleSize; // 记录K数
+            }
             else if (line.startsWith('OverallDifficulty:')) metadata.od = parseFloat(line.split(':')[1]);
         } else if (section === 'Events') {
             const parts = line.split(',');
@@ -81,7 +84,8 @@ function parseOsuMetadataFromString(content) {
         }
     }
     
-    if (mode === 3 && circleSize === 4) {
+    // 只解析 Mania 模式
+    if (mode === 3) {
         if (objCount > 0 && lastTime > firstTime) {
             const drainTime = (lastTime - firstTime) / 1000;
             const nps = objCount / (drainTime > 0 ? drainTime : 1);
@@ -255,9 +259,10 @@ app.post('/api/scan', (req, res) => {
                             title: meta.title,
                             artist: meta.artist,
                             version: meta.version,
+                            cs: meta.cs || 4, // 携带谱面K数
                             stars: meta.stars || 0,
                             bpm: meta.bpm || 0,
-                            od: meta.od || 5, // 记录OD
+                            od: meta.od || 5,
                             audioPath: normalize(audioFile ? path.join(itemPath, audioFile) : null),
                             bgPath: normalize(meta.bg ? path.join(itemPath, meta.bg) : null)
                         });
@@ -321,10 +326,11 @@ app.get('/api/sayobot_random', async (req, res) => {
                 if (result && result.data && result.data.status === 0 && result.data.data) {
                     const detailData = result.data.data;
                     if (detailData.bid_data) {
-                        const m4kDiffs = detailData.bid_data.filter(d => d.mode === 3 && (d.CS === 4 || d.cs === 4));
-                        if (m4kDiffs.length > 0) {
+                        // 支持所有模式为3 (Mania) 的谱面，不再限制4K
+                        const maniaDiffs = detailData.bid_data.filter(d => d.mode === 3);
+                        if (maniaDiffs.length > 0) {
                             if (!finalMaps.find(m => m.sid === detailData.sid)) {
-                                const randomDiff = m4kDiffs[Math.floor(Math.random() * m4kDiffs.length)];
+                                const randomDiff = maniaDiffs[Math.floor(Math.random() * maniaDiffs.length)];
                                 detailData.selected_diff = randomDiff;
                                 finalMaps.push(detailData);
                             }

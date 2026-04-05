@@ -59,22 +59,57 @@ window.addEventListener('DOMContentLoaded', () => {
         if (status) status.innerText = '正在初始化扫描...';
         doScan(false); 
     }
+});
 
-    document.querySelectorAll('.keybind-input').forEach(inp => {
+// 动态渲染所选K数的键位设定 UI
+function renderKeybinds(k) {
+    const grid = document.getElementById('keybind-grid');
+    grid.innerHTML = '';
+    
+    // 取出现有的绑定，保证存在
+    let binds = userSettings.keyBinds[k] || getDefaultBinds(k);
+    userSettings.keyBinds[k] = binds;
+
+    for (let i = 0; i < k; i++) {
+        const laneDiv = document.createElement('div');
+        laneDiv.style.display = 'flex';
+        laneDiv.style.gap = '5px';
+        laneDiv.style.alignItems = 'center';
+
+        laneDiv.innerHTML = `
+            <span style="color:#aaa;font-size:12px;width:45px;">轨道 ${i + 1}</span>
+            <input type="text" id="bind-${k}-${i}-0" class="setting-input keybind-input" readonly placeholder="空" value="${binds[i][0] || ''}" style="cursor: pointer; text-align: center; padding: 10px 5px;">
+            <input type="text" id="bind-${k}-${i}-1" class="setting-input keybind-input" readonly placeholder="空" value="${binds[i][1] || ''}" style="cursor: pointer; text-align: center; padding: 10px 5px;">
+        `;
+        grid.appendChild(laneDiv);
+    }
+
+    // 给动态生成的输入框挂上事件监听，实时存入 userSettings 内存中
+    grid.querySelectorAll('.keybind-input').forEach(inp => {
         inp.addEventListener('keydown', (e) => {
             e.preventDefault();
+            const parts = inp.id.split('-');
+            const lane = parseInt(parts[2]);
+            const idx = parseInt(parts[3]);
+            
             if (e.code === 'Escape' || e.code === 'Backspace') {
                 inp.value = '';
+                userSettings.keyBinds[k][lane][idx] = '';
             } else {
                 inp.value = e.code;
+                userSettings.keyBinds[k][lane][idx] = e.code;
             }
         });
         inp.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            const parts = inp.id.split('-');
+            const lane = parseInt(parts[2]);
+            const idx = parseInt(parts[3]);
             inp.value = '';
+            userSettings.keyBinds[k][lane][idx] = '';
         });
     });
-});
+}
 
 document.getElementById('select-folder-btn').onclick = async () => {
     const statusEl = document.getElementById('scan-status');
@@ -120,18 +155,23 @@ function applySettingsToInputs() {
     document.getElementById('set-scale').value = userSettings.trackScale;
     document.getElementById('set-blur').value = userSettings.bgBlur;
     document.getElementById('set-bg-dim').value = userSettings.bgDim;
-    document.getElementById('lane-color-1').value = userSettings.laneColors[0];
-    document.getElementById('lane-color-2').value = userSettings.laneColors[1];
-    document.getElementById('lane-color-3').value = userSettings.laneColors[2];
-    document.getElementById('lane-color-4').value = userSettings.laneColors[3];
-    
-    for(let i=0; i<4; i++) {
-        document.getElementById(`bind-${i}-0`).value = userSettings.keyBinds[i][0] || '';
-        document.getElementById(`bind-${i}-1`).value = userSettings.keyBinds[i][1] || '';
-    }
+    document.getElementById('lane-color-1').value = userSettings.laneColors[0] || '#ffffff';
+    document.getElementById('lane-color-2').value = userSettings.laneColors[1] || '#34d399';
+    document.getElementById('lane-color-3').value = userSettings.laneColors[2] || '#fbbf24';
+    document.getElementById('lane-color-4').value = userSettings.laneColors[3] || '#ffffff';
 
     document.getElementById('set-folder').value = localStorage.getItem('wm_folderPath') || '';
     document.getElementById('set-username').value = localStorage.getItem('wm_username') || '';
+
+    // 初始化键位绑定菜单，默认选中 4K
+    const kSelect = document.getElementById('keybind-k-select');
+    if (kSelect) {
+        kSelect.value = "4";
+        renderKeybinds(4);
+        kSelect.onchange = (e) => {
+            renderKeybinds(parseInt(e.target.value));
+        };
+    }
 
     const lastErrorStr = localStorage.getItem('webmania_last_error');
     const applyBtn = document.getElementById('apply-offset-btn');
@@ -151,32 +191,25 @@ function applySettingsToInputs() {
     }
 }
 
-applySettingsToInputs();
 document.getElementById('settings-btn').onclick = () => { 
     document.getElementById('settings-modal').classList.add('show'); 
     applySettingsToInputs(); 
 };
 
 document.getElementById('save-settings-btn').onclick = () => {
-    userSettings = { 
-        offset: parseInt(document.getElementById('set-offset').value) || 0, 
-        scrollSpeed: parseInt(document.getElementById('set-speed').value) || 1000, 
-        trackScale: parseFloat(document.getElementById('set-scale').value) || 1.0, 
-        bgBlur: parseInt(document.getElementById('set-blur').value) || 0,
-        bgDim: parseInt(document.getElementById('set-bg-dim').value) || 80,
-        laneColors: [
-            document.getElementById('lane-color-1').value,
-            document.getElementById('lane-color-2').value,
-            document.getElementById('lane-color-3').value,
-            document.getElementById('lane-color-4').value
-        ],
-        keyBinds: [
-            [document.getElementById('bind-0-0').value, document.getElementById('bind-0-1').value],
-            [document.getElementById('bind-1-0').value, document.getElementById('bind-1-1').value],
-            [document.getElementById('bind-2-0').value, document.getElementById('bind-2-1').value],
-            [document.getElementById('bind-3-0').value, document.getElementById('bind-3-1').value]
-        ]
-    };
+    // 键位设置(keyBinds)已经在 renderKeybinds 的 onChange 事件中实时更新到了 userSettings 里，只需持久化
+    userSettings.offset = parseInt(document.getElementById('set-offset').value) || 0;
+    userSettings.scrollSpeed = parseInt(document.getElementById('set-speed').value) || 1000;
+    userSettings.trackScale = parseFloat(document.getElementById('set-scale').value) || 1.0;
+    userSettings.bgBlur = parseInt(document.getElementById('set-blur').value) || 0;
+    userSettings.bgDim = parseInt(document.getElementById('set-bg-dim').value) || 80;
+    userSettings.laneColors = [
+        document.getElementById('lane-color-1').value,
+        document.getElementById('lane-color-2').value,
+        document.getElementById('lane-color-3').value,
+        document.getElementById('lane-color-4').value
+    ];
+
     localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
 
     const newUsername = document.getElementById('set-username').value.trim();
@@ -360,10 +393,12 @@ async function loadSayobotRandom() {
             data.data.forEach(map => {
                 const el = document.createElement('div');
                 el.className = 'map-diff-item';
+                // 显示包含哪些模式或K数
+                const csDisplay = map.selected_diff ? `[${map.selected_diff.CS || map.selected_diff.cs || '?'}K]` : '';
                 el.innerHTML = `
                     <div style="display:flex; flex-direction:column; gap:2px;">
                         <div style="font-weight:600; color:#eee;">${map.title}</div>
-                        <div style="font-size:12px; color:#aaa;">${map.artist} // 难度数: ${map.bid_data ? map.bid_data.length : '?'}</div>
+                        <div style="font-size:12px; color:#aaa;">${map.artist} // ${csDisplay} 难度数: ${map.bid_data ? map.bid_data.length : '?'}</div>
                     </div>
                     <div style="color:#60a5fa; font-size:12px; font-weight:600;">[下载]</div>
                 `;
@@ -605,15 +640,18 @@ function renderMapList() {
         group.forEach(bm => {
             const stars = bm.stars || getFakeStars(bm.version);
             const starColor = getStarColor(stars);
+            const cs = bm.cs || 4; // 动态提取 K数
             const diffItem = document.createElement('div');
             diffItem.className = 'map-diff-item';
             diffItem.setAttribute('data-id', bm.id);
             const grade = history[bm.id] || '';
+            
+            // 列表中增加 [X K] 提示
             diffItem.innerHTML = `
                 <div style="display:flex; align-items:center; gap:12px;">
                     <div style="width:12px; height:12px; border-radius:3px; background:${starColor}; box-shadow: 0 0 10px ${starColor};"></div>
                     <div style="display:flex; flex-direction:column; gap:2px;">
-                        <div style="font-weight:600; color:#eee; font-size: 15px;">${bm.version}</div>
+                        <div style="font-weight:600; color:#eee; font-size: 15px;"><span style="color:#fbbf24; font-weight:800; font-size:12px; margin-right:4px;">[${cs}K]</span>${bm.version}</div>
                         <div style="font-size:12px; color:${starColor}; font-weight:700;">${stars.toFixed(2)} ★</div>
                     </div>
                 </div>
@@ -720,9 +758,11 @@ async function selectMap(bm, element) {
     element.classList.add('selected');
     selectedMap = bm;
 
+    const csDisplay = bm.cs || 4;
     document.getElementById('info-title').innerText = bm.title;
     document.getElementById('info-artist').innerText = bm.artist;
-    document.getElementById('info-version').innerText = bm.version;
+    // 增加 [4K] 前缀
+    document.getElementById('info-version').innerText = `[${csDisplay}K] ${bm.version}`;
     const stars = bm.stars || getFakeStars(bm.version);
     document.getElementById('info-stars').innerText = `${stars.toFixed(2)} ★`;
     document.getElementById('info-stars').style.color = getStarColor(stars);
@@ -745,6 +785,7 @@ async function selectMap(bm, element) {
         document.getElementById('stat-od').innerText = parsed.od; 
         document.getElementById('stat-notes').innerText = parsed.noteCount;
         document.getElementById('stat-holds').innerText = parsed.holdsCount || parsed.holdCount;
+        document.getElementById('stat-keys').innerText = (parsed.cs || bm.cs || 4) + 'K';
 
         if (currentPreviewAudioPath !== bm.audioPath) {
             currentPreviewAudioPath = bm.audioPath;
@@ -771,7 +812,7 @@ async function selectMap(bm, element) {
 
 function parseOsuFileLite(osuText) {
     const lines = osuText.split(/\r?\n/);
-    let section = '', bpm = 0, hp = 0, od = 5, previewTime = -1, noteCount = 0, holdCount = 0, beatLengths = [];
+    let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, beatLengths = [];
     for (let line of lines) {
         line = line.trim();
         if (line.startsWith('[')) { section = line; continue; }
@@ -780,13 +821,15 @@ function parseOsuFileLite(osuText) {
         else if (section === '[Difficulty]') {
             if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim());
             if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
+            if (line.startsWith('CircleSize:')) cs = parseFloat(line.split(':')[1].trim()); 
         }
         else if (section === '[TimingPoints]') { let parts = line.split(','); if (parts.length >= 2 && parseFloat(parts[1]) > 0) beatLengths.push(parseFloat(parts[1])); } 
         else if (section === '[HitObjects]') {
             const parts = line.split(',');
             if (parts.length >= 5) {
-                const column = Math.floor(parseInt(parts[0]) / (512 / 4));
-                if (column >= 0 && column < 4) { if ((parseInt(parts[3]) & 128) !== 0) holdCount++; else noteCount++; }
+                // 动态计算该按键处于多少轨道
+                const column = Math.floor(parseInt(parts[0]) * cs / 512);
+                if (column >= 0 && column < cs) { if ((parseInt(parts[3]) & 128) !== 0) holdCount++; else noteCount++; }
             }
         }
     }
@@ -794,7 +837,7 @@ function parseOsuFileLite(osuText) {
         let mainBL = beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop();
         bpm = Math.round(60000 / mainBL);
     }
-    return { bpm, hp, od, previewTime, noteCount, holdCount };
+    return { bpm, hp, od, cs, previewTime, noteCount, holdCount };
 }
 
 function startGame() {

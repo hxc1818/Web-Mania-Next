@@ -2,12 +2,8 @@
 const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
 const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
 
-const KEY_MAP = {};
-userSettings.keyBinds.forEach((binds, laneIndex) => {
-    binds.forEach(key => {
-        if (key) KEY_MAP[key] = laneIndex;
-    });
-});
+// 将全局静态常量更改为 let，稍后根据图动态生成
+let KEY_MAP = {};
 
 let selectedMap = null;
 let currentLeaderboard = [];
@@ -194,13 +190,37 @@ class GameEngine {
         };
 
         this.scrollSpeed = userSettings.scrollSpeed;
-        this.laneCount = 4;
-        this.trackWidth = 400 * userSettings.trackScale;
+        
+        // 动态配置按键数量
+        this.laneCount = beatmapData.cs || 4;
+        
+        // 动态计算基础轨道宽度，按键越多，单列越窄
+        let baseLaneWidth = 100;
+        if(this.laneCount > 4) baseLaneWidth = 80;
+        if(this.laneCount > 7) baseLaneWidth = 60;
+        if(this.laneCount > 10) baseLaneWidth = 45;
+        if(this.laneCount > 15) baseLaneWidth = 35;
+        
+        this.trackWidth = (this.laneCount * baseLaneWidth) * userSettings.trackScale;
         this.laneWidth = this.trackWidth / this.laneCount;
         this.hitLineY = this.canvas.height - 120;
-        this.laneColors = userSettings.laneColors;
+        
+        // 对称动态生成轨道颜色
+        this.laneColors = [];
+        const colorOut = userSettings.laneColors[0] || '#ffffff';
+        const colorIn = userSettings.laneColors[1] || '#34d399';
+        const colorCenter = userSettings.laneColors[2] || '#fbbf24';
 
-        this.keys = [false, false, false, false];
+        for (let i = 0; i < this.laneCount; i++) {
+            if (this.laneCount % 2 !== 0 && i === Math.floor(this.laneCount / 2)) {
+                this.laneColors.push(colorCenter);
+            } else {
+                const distanceFromEdge = Math.min(i, this.laneCount - 1 - i);
+                this.laneColors.push(distanceFromEdge % 2 === 0 ? colorOut : colorIn);
+            }
+        }
+
+        this.keys = new Array(this.laneCount).fill(false);
         this.isRunning = false;
         this.isPaused = false;
         this.audioSource = null;
@@ -441,7 +461,7 @@ class GameEngine {
     }
 
     onKeyDown(lane, forcedTime = null) {
-        if (!this.isRunning || this.isPaused) return;
+        if (!this.isRunning || this.isPaused || lane >= this.laneCount) return;
         
         this.keys[lane] = true;
         const now = forcedTime !== null ? forcedTime : this.getTime();
@@ -477,7 +497,7 @@ class GameEngine {
     }
 
     onKeyUp(lane, forcedTime = null) {
-        if (!this.isRunning || this.isPaused) return;
+        if (!this.isRunning || this.isPaused || lane >= this.laneCount) return;
 
         this.keys[lane] = false;
         const now = forcedTime !== null ? forcedTime : this.getTime();
@@ -659,6 +679,17 @@ async function initGame(isSpectating) {
         if (initId !== currentInitId) return; 
         const parsed = parseOsuFile(osuText);
 
+        // 动态加载对应K数的键位设置
+        KEY_MAP = {};
+        const currentCS = parsed.cs || selectedMap.cs || 4;
+        let currentBinds = userSettings.keyBinds[currentCS];
+        if (!currentBinds) currentBinds = [];
+        currentBinds.forEach((binds, laneIndex) => {
+            binds.forEach(key => {
+                if (key) KEY_MAP[key] = laneIndex;
+            });
+        });
+
         if (parsed.videoPath) {
             const cleanVideoPath = parsed.videoPath.trim();
             const fullVideoPath = selectedMap.dirPath + '/' + cleanVideoPath;
@@ -737,7 +768,7 @@ async function initGame(isSpectating) {
 
 function parseOsuFile(osuText) {
     const lines = osuText.split(/\r?\n/);
-    let section = '', bpm = 0, hp = 0, od = 5, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
+    let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
     const notes = [];
     
     for (let line of lines) {
@@ -749,6 +780,7 @@ function parseOsuFile(osuText) {
         else if (section === '[Difficulty]') { 
             if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim()); 
             if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
+            if (line.startsWith('CircleSize:')) cs = parseFloat(line.split(':')[1].trim()); // 提取K数
         } 
         else if (section === '[Events]') {
             const parts = line.split(',');
@@ -762,8 +794,10 @@ function parseOsuFile(osuText) {
         else if (section === '[HitObjects]') {
             const parts = line.split(',');
             if (parts.length >= 5) {
-                const x = parseInt(parts[0]), time = parseInt(parts[2]), type = parseInt(parts[3]), column = Math.floor(x / (512 / 4));
-                if (column >= 0 && column < 4) {
+                const x = parseInt(parts[0]), time = parseInt(parts[2]), type = parseInt(parts[3]);
+                // 通过公式计算真正的列数
+                const column = Math.floor(x * cs / 512);
+                if (column >= 0 && column < cs) {
                     if ((type & 128) !== 0) {
                         const endTime = parseInt(parts[5].split(':')[0]);
                         notes.push({ type: 'hold', time, endTime, column, headJudged: false, tailJudged: false, isHolding: false });
@@ -776,7 +810,7 @@ function parseOsuFile(osuText) {
         }
     }
     if (beatLengths.length > 0) bpm = Math.round(60000 / beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop());
-    return { notes: notes.sort((a,b) => a.time - b.time), bpm, hp, od, previewTime, noteCount, holdCount, videoPath };
+    return { notes: notes.sort((a,b) => a.time - b.time), bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath };
 }
 
 function animateValue(obj, start, end, duration, formatStr = false) {

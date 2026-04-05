@@ -54,6 +54,7 @@
                 <div class="stat-item">HP <span id="stat-hp">0</span></div>
                 <div class="stat-item">按键 <span id="stat-notes">0</span></div>
                 <div class="stat-item">长按 <span id="stat-holds">0</span></div>
+                <div class="stat-item">模式 <span id="stat-keys" style="color:#fbbf24;">4K</span></div>
             </div>
 
             <div class="info-container">
@@ -113,39 +114,39 @@
             <div class="setting-row"><label class="setting-label">背景暗化 (0-100)</label><input type="number" id="set-bg-dim" class="setting-input" min="0" max="100"></div>
             
             <div class="setting-row" style="margin-top: 25px;">
-                <label class="setting-label">按键绑定 (每条轨道最多2个，点选并按键绑定，右键或Esc清除)</label>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div style="display:flex; gap:5px; align-items:center;">
-                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 1</span>
-                        <input type="text" id="bind-0-0" class="setting-input keybind-input" readonly placeholder="空">
-                        <input type="text" id="bind-0-1" class="setting-input keybind-input" readonly placeholder="空">
-                    </div>
-                    <div style="display:flex; gap:5px; align-items:center;">
-                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 2</span>
-                        <input type="text" id="bind-1-0" class="setting-input keybind-input" readonly placeholder="空">
-                        <input type="text" id="bind-1-1" class="setting-input keybind-input" readonly placeholder="空">
-                    </div>
-                    <div style="display:flex; gap:5px; align-items:center;">
-                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 3</span>
-                        <input type="text" id="bind-2-0" class="setting-input keybind-input" readonly placeholder="空">
-                        <input type="text" id="bind-2-1" class="setting-input keybind-input" readonly placeholder="空">
-                    </div>
-                    <div style="display:flex; gap:5px; align-items:center;">
-                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 4</span>
-                        <input type="text" id="bind-3-0" class="setting-input keybind-input" readonly placeholder="空">
-                        <input type="text" id="bind-3-1" class="setting-input keybind-input" readonly placeholder="空">
-                    </div>
-                </div>
-            </div>
-
-            <div class="setting-row" style="margin-top: 25px;">
-                <label class="setting-label">轨道颜色 (1 至 4)</label>
+                <label class="setting-label">轨道颜色 (按顺序: 外侧, 内侧, 中心特键, 其他辅助)</label>
                 <div class="color-picker-row">
                     <input type="color" id="lane-color-1" class="color-picker" value="#ffffff">
                     <input type="color" id="lane-color-2" class="color-picker" value="#34d399">
-                    <input type="color" id="lane-color-3" class="color-picker" value="#34d399">
+                    <input type="color" id="lane-color-3" class="color-picker" value="#fbbf24">
                     <input type="color" id="lane-color-4" class="color-picker" value="#ffffff">
                 </div>
+            </div>
+
+            <div class="setting-row" style="margin-top: 25px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+                <label class="setting-label" style="color: #60a5fa; font-size: 15px;">全键位定制 (1K - 18K) - 每条轨道最多绑定两个键</label>
+                <select id="keybind-k-select" class="setting-input" style="width: 150px; margin-bottom: 15px; cursor: pointer;">
+                    <option value="1">1K 模式</option>
+                    <option value="2">2K 模式</option>
+                    <option value="3">3K 模式</option>
+                    <option value="4" selected>4K 模式</option>
+                    <option value="5">5K 模式</option>
+                    <option value="6">6K 模式</option>
+                    <option value="7">7K 模式</option>
+                    <option value="8">8K 模式</option>
+                    <option value="9">9K 模式</option>
+                    <option value="10">10K 模式</option>
+                    <option value="11">11K 模式</option>
+                    <option value="12">12K 模式</option>
+                    <option value="13">13K 模式</option>
+                    <option value="14">14K 模式</option>
+                    <option value="15">15K 模式</option>
+                    <option value="16">16K 模式</option>
+                    <option value="17">17K 模式</option>
+                    <option value="18">18K 模式</option>
+                </select>
+                <!-- 动态渲染的键位设置表格 -->
+                <div id="keybind-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;"></div>
             </div>
 
             <div class="setting-row" style="margin-top: 25px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
