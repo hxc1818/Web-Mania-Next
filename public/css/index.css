@@ -2,7 +2,8 @@
 #setup-screen { justify-content: center; align-items: center; background: radial-gradient(circle at center, #1e1e28 0%, #0f0f13 100%); }
 
 #select-screen { flex-direction: row; background: transparent; position: relative; }
-.select-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-repeat: no-repeat; background-position: center; filter: brightness(0.2) blur(5px); z-index: 0; transition: background-image 0.3s ease; }
+/* 重点优化：去除了极度耗性能的 transition: background-image，改用 opacity 处理图层淡入淡出 */
+.select-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-repeat: no-repeat; background-position: center; filter: brightness(0.2) blur(5px); z-index: 0; transition: opacity 0.3s ease; opacity: 1; will-change: opacity; }
 .select-left { flex: 5; z-index: 1; padding: 100px 40px 60px 80px; display: flex; flex-direction: column; justify-content: flex-start; background: linear-gradient(to right, rgba(15,15,19,0.95) 0%, rgba(15,15,19,0.8) 40%, transparent 100%); position: relative; }
 .select-right { flex: 4; z-index: 1; overflow-y: auto; padding: 100px 0 40px 0; display: flex; flex-direction: column; align-items: flex-end; mask-image: linear-gradient(to bottom, transparent, black 5%, black 95%, transparent); -webkit-mask-image: linear-gradient(to bottom, transparent, black 5%, black 95%, transparent); scroll-behavior: smooth; overscroll-behavior: contain; }
 

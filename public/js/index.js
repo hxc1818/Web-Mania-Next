@@ -9,7 +9,7 @@ let currentPreviewAudioPath = "";
 let contextTarget = null;
 let currentLeaderboard = [];
 let currentLocalScores = [];
-let searchDebounceTimer = null; // 增加防抖计时器
+let searchDebounceTimer = null; 
 
 const isSelector = new URLSearchParams(window.location.search).get('selector') === 'true';
 
@@ -53,7 +53,6 @@ function applyUIScale() {
     const scale = userSettings.uiScale || 1.0;
     const selectScreen = document.getElementById('select-screen');
     if (selectScreen) {
-        // 使用 zoom 缩放可以完美适配子元素的绝对定位等而不破坏原本比例
         selectScreen.style.zoom = scale;
     }
 }
@@ -63,12 +62,12 @@ function handleSearchInput() {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => {
         renderMapList();
-    }, 250); // 250ms 防抖
+    }, 250); 
 }
 
 window.addEventListener('DOMContentLoaded', () => {
     applyTranslations();
-    applyUIScale(); // 初始化应用 UI 缩放
+    applyUIScale(); 
 
     if (isSelector) {
         document.querySelector('.mode-switcher').style.display = 'none';
@@ -96,7 +95,6 @@ window.addEventListener('DOMContentLoaded', () => {
         doScan(false); 
     }
 
-    // 绑定搜索与排序防抖事件
     const searchInput = document.getElementById('search-input');
     if (searchInput) searchInput.addEventListener('input', handleSearchInput);
     const sortField = document.getElementById('sort-field');
@@ -135,9 +133,8 @@ function initSettingsUI() {
     bindEl('st-bgDim', 'bgDim', 'value', '%');
     bindEl('st-scrollSpeed', 'scrollSpeed');
     
-    // UI 缩放滑块事件挂载
     bindEl('st-uiScale', 'uiScale', 'value', 'x', v => {
-        applyUIScale(); // 拖动滑条时实时改变缩放
+        applyUIScale(); 
         return parseFloat(v).toFixed(1) + 'x';
     });
     
@@ -313,7 +310,6 @@ window.addEventListener('storage', (e) => {
     }
 });
 
-// Original Core Logic below
 async function doScan(forceRescan = false) {
     const path = document.getElementById('folder-input').value || localStorage.getItem('wm_folderPath');
     const status = document.getElementById('scan-status');
@@ -361,7 +357,7 @@ async function doScan(forceRescan = false) {
                                     if (header) {
                                         const groupEl = header.parentElement;
                                         if (!groupEl.classList.contains('expanded')) {
-                                            header.click(); // 利用模拟点击来触发懒加载并展开
+                                            header.click(); 
                                         }
                                         setTimeout(() => {
                                             const diffItem = document.querySelector(`.map-diff-item[data-id="${targetMap.id}"]`);
@@ -370,7 +366,7 @@ async function doScan(forceRescan = false) {
                                                 selectMap(targetMap, diffItem);
                                                 diffItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                             }
-                                        }, 250);
+                                        }, 100);
                                     }
                                     break;
                                 }
@@ -589,7 +585,7 @@ document.getElementById('btn-random-map').onclick = () => {
     const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
     if (header) {
         if (!header.parentElement.classList.contains('expanded')) {
-            header.click(); // 通过模拟点击触发组的懒加载机制
+            header.click(); 
         }
         setTimeout(() => {
             const diffItem = document.querySelector(`.map-diff-item[data-id="${rndMap.id}"]`);
@@ -598,7 +594,7 @@ document.getElementById('btn-random-map').onclick = () => {
                 selectMap(rndMap, diffItem);
                 diffItem.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
             }
-        }, 250); 
+        }, 100); 
     }
 };
 
@@ -699,7 +695,31 @@ function renderMapList() {
         diffList.className = 'map-diff-list';
         const diffListInner = document.createElement('div');
         diffListInner.className = 'map-diff-list-inner';
-        diffListInner.dataset.rendered = "false"; // 懒渲染标记
+
+        // 核心优化：彻底移除懒加载逻辑，由于 DOM 生成本身足够快，避免复杂的状态判断
+        group.forEach(bm => {
+            const stars = bm.stars || getFakeStars(bm.version);
+            const starColor = getStarColor(stars);
+            const cs = bm.cs || 4;
+            const diffItem = document.createElement('div');
+            diffItem.className = 'map-diff-item';
+            diffItem.setAttribute('data-id', bm.id);
+            const grade = history[bm.id] || '';
+            
+            diffItem.innerHTML = `
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="width:12px; height:12px; border-radius:3px; background:${starColor}; box-shadow: 0 0 10px ${starColor};"></div>
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <div style="font-weight:600; color:#eee; font-size: 15px;"><span style="color:#fbbf24; font-weight:800; font-size:12px; margin-right:4px;">[${cs}K]</span>${bm.version}</div>
+                        <div style="font-size:12px; color:${starColor}; font-weight:700;">${stars.toFixed(2)} ★</div>
+                    </div>
+                </div>
+                <div class="map-grade ${grade ? 'color-'+grade.toLowerCase() : ''}">${grade}</div>
+            `;
+            diffItem.onclick = (e) => { e.stopPropagation(); selectMap(bm, diffItem); };
+            diffItem.oncontextmenu = (e) => showContextMenu(e, g.dirPath);
+            diffListInner.appendChild(diffItem);
+        });
 
         diffList.appendChild(diffListInner);
 
@@ -710,34 +730,6 @@ function renderMapList() {
                 if (el.querySelector('.map-diff-list')) el.querySelector('.map-diff-list').style.gridTemplateRows = '0fr';
             });
             if (!isExpanded) {
-                // 仅在首次展开时注入 DOM 元素，实现懒加载解决卡顿
-                if (diffListInner.dataset.rendered === "false") {
-                    group.forEach(bm => {
-                        const stars = bm.stars || getFakeStars(bm.version);
-                        const starColor = getStarColor(stars);
-                        const cs = bm.cs || 4;
-                        const diffItem = document.createElement('div');
-                        diffItem.className = 'map-diff-item';
-                        diffItem.setAttribute('data-id', bm.id);
-                        const grade = history[bm.id] || '';
-                        
-                        diffItem.innerHTML = `
-                            <div style="display:flex; align-items:center; gap:12px;">
-                                <div style="width:12px; height:12px; border-radius:3px; background:${starColor}; box-shadow: 0 0 10px ${starColor};"></div>
-                                <div style="display:flex; flex-direction:column; gap:2px;">
-                                    <div style="font-weight:600; color:#eee; font-size: 15px;"><span style="color:#fbbf24; font-weight:800; font-size:12px; margin-right:4px;">[${cs}K]</span>${bm.version}</div>
-                                    <div style="font-size:12px; color:${starColor}; font-weight:700;">${stars.toFixed(2)} ★</div>
-                                </div>
-                            </div>
-                            <div class="map-grade ${grade ? 'color-'+grade.toLowerCase() : ''}">${grade}</div>
-                        `;
-                        diffItem.onclick = (e) => { e.stopPropagation(); selectMap(bm, diffItem); };
-                        diffItem.oncontextmenu = (e) => showContextMenu(e, g.dirPath);
-                        diffListInner.appendChild(diffItem);
-                    });
-                    diffListInner.dataset.rendered = "true";
-                }
-
                 groupEl.classList.add('expanded');
                 diffList.style.gridTemplateRows = '1fr';
                 const firstItem = diffListInner.querySelector('.map-diff-item');
@@ -820,6 +812,7 @@ function playReplay(scoreId) {
     setTimeout(() => { window.location.href = 'game.html'; }, 1000);
 }
 
+// 核心优化：避免同一个组的背景重复触发渲染（造成巨大卡顿的核心原因）
 async function selectMap(bm, element) {
     if (selectedMap && selectedMap.id === bm.id) { return startGame(); }
     document.querySelectorAll('.map-diff-item').forEach(el => el.classList.remove('selected'));
@@ -834,7 +827,43 @@ async function selectMap(bm, element) {
     document.getElementById('info-stars').innerText = `${stars.toFixed(2)} ★`;
     document.getElementById('info-stars').style.color = getStarColor(stars);
 
-    if (bm.bgPath) document.getElementById('select-bg').style.backgroundImage = `url("${LOCAL_API_URL}/file?path=${encodeURIComponent(bm.bgPath)}")`;
+    if (bm.bgPath) {
+        const newBgUrl = `url("${LOCAL_API_URL}/file?path=${encodeURIComponent(bm.bgPath)}")`;
+        const oldBg = document.getElementById('select-bg');
+        
+        // 只有当背景图和原来不同的时候，才执行平滑切换的图层交叉淡入淡出。
+        // 这彻底解决了同一首音乐的不同难度间切换导致严重掉帧的问题！
+        const currentBgStyle = oldBg ? oldBg.style.backgroundImage : '';
+        if (!currentBgStyle.includes(encodeURIComponent(bm.bgPath))) {
+            const selectScreen = document.getElementById('select-screen');
+            
+            const newBg = document.createElement('div');
+            newBg.className = 'select-bg';
+            newBg.style.backgroundImage = newBgUrl;
+            newBg.style.opacity = 0;
+            newBg.id = 'select-bg'; // 新图层接管 ID
+            
+            if (oldBg) {
+                oldBg.removeAttribute('id'); // 取消老背景的 ID
+                selectScreen.insertBefore(newBg, oldBg.nextSibling);
+            } else {
+                selectScreen.insertBefore(newBg, selectScreen.firstChild);
+            }
+            
+            // 强制触发一次绘制，以便执行透明度渐变动画
+            void newBg.offsetWidth;
+            newBg.style.opacity = 1;
+            
+            if (oldBg) {
+                oldBg.style.opacity = 0;
+                setTimeout(() => {
+                    if (oldBg && oldBg.parentNode) {
+                        oldBg.parentNode.removeChild(oldBg);
+                    }
+                }, 300);
+            }
+        }
+    }
 
     fetchLeaderboard(bm.beatmapId);
     fetchLocalLeaderboard(bm.id);
@@ -868,7 +897,7 @@ async function selectMap(bm, element) {
                     else if (previewAudio.duration) previewAudio.currentTime = previewAudio.duration / 3;
                 };
                 previewAudio.oncanplay = () => {
-                    updatePreviewVolume(); // 调用统一的计算和判断是否失焦的方法赋予初始播放音量
+                    updatePreviewVolume(); 
                     const playPromise = previewAudio.play();
                     if (playPromise !== undefined) { playPromise.catch(e => {}); }
                     previewAudio.oncanplay = null;
