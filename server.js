@@ -10,6 +10,10 @@ const http = require('http');
 const { exec, spawn } = require('child_process');
 const os = require('os');
 const net = require('net');
+const EventEmitter = require('events');
+
+// 创建全局窗口事件控制器
+const winControl = new EventEmitter();
 
 let APP_DATA_PATH = os.tmpdir();
 
@@ -113,6 +117,12 @@ function clearCache() {
         try { fs.unlinkSync(cacheFile); } catch(e) {}
     }
 }
+
+// 动态控制主进程窗口的 Kiosk 模式
+app.post('/api/kiosk', (req, res) => {
+    winControl.emit('set-kiosk', req.body.kiosk);
+    res.json({ success: true });
+});
 
 app.post('/api/sys_config', (req, res) => {
     try {
@@ -507,4 +517,4 @@ async function startServer(initialPort, userDataPath) {
     });
 }
 
-module.exports = { startServer };
+module.exports = { startServer, winControl };

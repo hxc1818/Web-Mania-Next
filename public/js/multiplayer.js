@@ -201,9 +201,15 @@ function updateRoomUI() {
                 if (roomAudio.src !== srcPath && roomAudio.src !== window.location.origin + srcPath) {
                     roomAudio.src = srcPath;
                     roomAudio.loop = true;
-                    roomAudio.volume = 0.5;
+                    // 读取主音量
+                    const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+                    const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+                    roomAudio.volume = mVol * muVol * 0.5;
                     roomAudio.play().catch(e=>{});
                 } else if (roomAudio.paused) {
+                    const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+                    const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+                    roomAudio.volume = mVol * muVol * 0.5;
                     roomAudio.play().catch(e=>{});
                 }
             }

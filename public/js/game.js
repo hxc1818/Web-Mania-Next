@@ -30,8 +30,6 @@ let escProgress = 0;
 let retryHoldTimer = null;
 let retryProgress = 0;
 
-// 注意：这里删除了 let userSettings = ... 的重复声明，直接使用 common.js 中已经初始化好的 userSettings 变量！
-
 window.onload = async () => {
     const mapData = sessionStorage.getItem('webmania_current_map');
     if (mapData) selectedMap = JSON.parse(mapData);
@@ -564,7 +562,8 @@ class GameEngine {
         if (userSettings.fpsLimit && userSettings.fpsLimit !== 'unlimited') {
             const targets = { 'vsync': 60, '2x': 120, '4x': 240, '8x': 480 };
             const targetFps = targets[userSettings.fpsLimit] || 60;
-            if (hrTime - this.lastFrameTime < 1000 / targetFps) {
+            // 引入 1.5ms 的容差（Tolerance），防止由于 requestAnimationFrame 的微小延迟波动导致跑不满预设高帧率
+            if (hrTime - this.lastFrameTime < (1000 / targetFps) - 1.5) {
                 requestAnimationFrame(this.loop.bind(this));
                 return;
             }

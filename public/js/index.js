@@ -9,6 +9,7 @@ let currentPreviewAudioPath = "";
 let contextTarget = null;
 let currentLeaderboard = [];
 let currentLocalScores = [];
+let searchDebounceTimer = null; // 增加防抖计时器
 
 const isSelector = new URLSearchParams(window.location.search).get('selector') === 'true';
 
@@ -33,8 +34,41 @@ const bgObserver = new IntersectionObserver((entries, obs) => {
     });
 }, { rootMargin: '200px 0px' });
 
+// ======================== 全局音频焦点控制与 UI 缩放 ========================
+function updatePreviewVolume() {
+    if (previewAudio && !previewAudio.paused) {
+        const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+        const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+        const musicVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+        
+        const currentMaster = document.hasFocus() ? mVol : bgVol;
+        previewAudio.volume = currentMaster * musicVol * 0.5;
+    }
+}
+
+window.addEventListener('blur', updatePreviewVolume);
+window.addEventListener('focus', updatePreviewVolume);
+
+function applyUIScale() {
+    const scale = userSettings.uiScale || 1.0;
+    const selectScreen = document.getElementById('select-screen');
+    if (selectScreen) {
+        // 使用 zoom 缩放可以完美适配子元素的绝对定位等而不破坏原本比例
+        selectScreen.style.zoom = scale;
+    }
+}
+// =======================================================================
+
+function handleSearchInput() {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+        renderMapList();
+    }, 250); // 250ms 防抖
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     applyTranslations();
+    applyUIScale(); // 初始化应用 UI 缩放
 
     if (isSelector) {
         document.querySelector('.mode-switcher').style.display = 'none';
@@ -61,6 +95,14 @@ window.addEventListener('DOMContentLoaded', () => {
         if (status) status.innerText = '正在初始化扫描...';
         doScan(false); 
     }
+
+    // 绑定搜索与排序防抖事件
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) searchInput.addEventListener('input', handleSearchInput);
+    const sortField = document.getElementById('sort-field');
+    if (sortField) sortField.addEventListener('change', renderMapList);
+    const sortDir = document.getElementById('sort-dir');
+    if (sortDir) sortDir.addEventListener('change', renderMapList);
 
     initSettingsUI();
     populateAudioDevices();
@@ -92,13 +134,19 @@ function initSettingsUI() {
     bindEl('st-bgBlur', 'bgBlur', 'value', 'px');
     bindEl('st-bgDim', 'bgDim', 'value', '%');
     bindEl('st-scrollSpeed', 'scrollSpeed');
+    
+    // UI 缩放滑块事件挂载
+    bindEl('st-uiScale', 'uiScale', 'value', 'x', v => {
+        applyUIScale(); // 拖动滑条时实时改变缩放
+        return parseFloat(v).toFixed(1) + 'x';
+    });
+    
     bindEl('st-trackScale', 'trackScale', 'value', 'x', v => parseFloat(v).toFixed(1) + 'x');
     bindEl('st-masterVol', 'masterVol', 'value', '%');
     bindEl('st-bgVol', 'bgVol', 'value', '%');
     bindEl('st-sfxVol', 'sfxVol', 'value', '%');
     bindEl('st-musicVol', 'musicVol', 'value', '%');
     bindEl('st-offset', 'offset', 'value', 'ms');
-    bindEl('st-uiScale', 'uiScale', 'value', 'x', v => parseFloat(v).toFixed(1) + 'x');
     bindEl('st-renderer', 'renderer');
     bindEl('st-fpsLimit', 'fpsLimit');
     bindEl('st-threadMode', 'threadMode');
@@ -312,15 +360,9 @@ async function doScan(forceRescan = false) {
                                     const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
                                     if (header) {
                                         const groupEl = header.parentElement;
-                                        document.querySelectorAll('.map-group').forEach(el => {
-                                            el.classList.remove('expanded');
-                                            if (el.querySelector('.map-diff-list')) el.querySelector('.map-diff-list').style.gridTemplateRows = '0fr';
-                                        });
-                                        
-                                        groupEl.classList.add('expanded');
-                                        const diffList = groupEl.querySelector('.map-diff-list');
-                                        if(diffList) diffList.style.gridTemplateRows = '1fr';
-
+                                        if (!groupEl.classList.contains('expanded')) {
+                                            header.click(); // 利用模拟点击来触发懒加载并展开
+                                        }
                                         setTimeout(() => {
                                             const diffItem = document.querySelector(`.map-diff-item[data-id="${targetMap.id}"]`);
                                             if (diffItem) {
@@ -465,9 +507,16 @@ async function installSayobotMap(sid, title, element) {
                 const targetMap = beatmaps.find(b => b.title === title || (b.title && b.title.includes(title)));
                 if (targetMap) {
                     selectedMap = null; 
-                    const diffItem = document.querySelector(`.map-diff-item[data-id="${targetMap.id}"]`);
-                    if (diffItem) { selectMap(targetMap, diffItem); }
-                    startGame();
+                    const key = `${targetMap.artist} - ${targetMap.title}`;
+                    const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
+                    if (header) {
+                        if (!header.parentElement.classList.contains('expanded')) header.click();
+                        setTimeout(() => {
+                            const diffItem = document.querySelector(`.map-diff-item[data-id="${targetMap.id}"]`);
+                            if (diffItem) selectMap(targetMap, diffItem);
+                            startGame();
+                        }, 250);
+                    }
                 } else {
                     alert("安装成功，但未能自动选中它。请手动搜索。");
                 }
@@ -539,14 +588,9 @@ document.getElementById('btn-random-map').onclick = () => {
     const key = `${rndMap.artist} - ${rndMap.title}`;
     const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
     if (header) {
-        const groupEl = header.parentElement;
-        document.querySelectorAll('.map-group').forEach(el => {
-            el.classList.remove('expanded');
-            if (el.querySelector('.map-diff-list')) el.querySelector('.map-diff-list').style.gridTemplateRows = '0fr';
-        });
-        groupEl.classList.add('expanded');
-        const diffList = groupEl.querySelector('.map-diff-list');
-        if(diffList) diffList.style.gridTemplateRows = '1fr';
+        if (!header.parentElement.classList.contains('expanded')) {
+            header.click(); // 通过模拟点击触发组的懒加载机制
+        }
         setTimeout(() => {
             const diffItem = document.querySelector(`.map-diff-item[data-id="${rndMap.id}"]`);
             if (diffItem) {
@@ -655,30 +699,8 @@ function renderMapList() {
         diffList.className = 'map-diff-list';
         const diffListInner = document.createElement('div');
         diffListInner.className = 'map-diff-list-inner';
+        diffListInner.dataset.rendered = "false"; // 懒渲染标记
 
-        group.forEach(bm => {
-            const stars = bm.stars || getFakeStars(bm.version);
-            const starColor = getStarColor(stars);
-            const cs = bm.cs || 4;
-            const diffItem = document.createElement('div');
-            diffItem.className = 'map-diff-item';
-            diffItem.setAttribute('data-id', bm.id);
-            const grade = history[bm.id] || '';
-            
-            diffItem.innerHTML = `
-                <div style="display:flex; align-items:center; gap:12px;">
-                    <div style="width:12px; height:12px; border-radius:3px; background:${starColor}; box-shadow: 0 0 10px ${starColor};"></div>
-                    <div style="display:flex; flex-direction:column; gap:2px;">
-                        <div style="font-weight:600; color:#eee; font-size: 15px;"><span style="color:#fbbf24; font-weight:800; font-size:12px; margin-right:4px;">[${cs}K]</span>${bm.version}</div>
-                        <div style="font-size:12px; color:${starColor}; font-weight:700;">${stars.toFixed(2)} ★</div>
-                    </div>
-                </div>
-                <div class="map-grade ${grade ? 'color-'+grade.toLowerCase() : ''}">${grade}</div>
-            `;
-            diffItem.onclick = (e) => { e.stopPropagation(); selectMap(bm, diffItem); };
-            diffItem.oncontextmenu = (e) => showContextMenu(e, g.dirPath);
-            diffListInner.appendChild(diffItem);
-        });
         diffList.appendChild(diffListInner);
 
         header.onclick = () => {
@@ -688,6 +710,34 @@ function renderMapList() {
                 if (el.querySelector('.map-diff-list')) el.querySelector('.map-diff-list').style.gridTemplateRows = '0fr';
             });
             if (!isExpanded) {
+                // 仅在首次展开时注入 DOM 元素，实现懒加载解决卡顿
+                if (diffListInner.dataset.rendered === "false") {
+                    group.forEach(bm => {
+                        const stars = bm.stars || getFakeStars(bm.version);
+                        const starColor = getStarColor(stars);
+                        const cs = bm.cs || 4;
+                        const diffItem = document.createElement('div');
+                        diffItem.className = 'map-diff-item';
+                        diffItem.setAttribute('data-id', bm.id);
+                        const grade = history[bm.id] || '';
+                        
+                        diffItem.innerHTML = `
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <div style="width:12px; height:12px; border-radius:3px; background:${starColor}; box-shadow: 0 0 10px ${starColor};"></div>
+                                <div style="display:flex; flex-direction:column; gap:2px;">
+                                    <div style="font-weight:600; color:#eee; font-size: 15px;"><span style="color:#fbbf24; font-weight:800; font-size:12px; margin-right:4px;">[${cs}K]</span>${bm.version}</div>
+                                    <div style="font-size:12px; color:${starColor}; font-weight:700;">${stars.toFixed(2)} ★</div>
+                                </div>
+                            </div>
+                            <div class="map-grade ${grade ? 'color-'+grade.toLowerCase() : ''}">${grade}</div>
+                        `;
+                        diffItem.onclick = (e) => { e.stopPropagation(); selectMap(bm, diffItem); };
+                        diffItem.oncontextmenu = (e) => showContextMenu(e, g.dirPath);
+                        diffListInner.appendChild(diffItem);
+                    });
+                    diffListInner.dataset.rendered = "true";
+                }
+
                 groupEl.classList.add('expanded');
                 diffList.style.gridTemplateRows = '1fr';
                 const firstItem = diffListInner.querySelector('.map-diff-item');
@@ -818,7 +868,7 @@ async function selectMap(bm, element) {
                     else if (previewAudio.duration) previewAudio.currentTime = previewAudio.duration / 3;
                 };
                 previewAudio.oncanplay = () => {
-                    previewAudio.volume = (userSettings.masterVol / 100) * (userSettings.musicVol / 100) * 0.5;
+                    updatePreviewVolume(); // 调用统一的计算和判断是否失焦的方法赋予初始播放音量
                     const playPromise = previewAudio.play();
                     if (playPromise !== undefined) { playPromise.catch(e => {}); }
                     previewAudio.oncanplay = null;

@@ -1,10 +1,19 @@
 // /main.js
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 // 屏蔽讨厌的 Electron 安全警告！
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+
+// 1. 禁用掉帧率限制
+app.commandLine.appendSwitch('disable-frame-rate-limit');
+// 2. 彻底禁用垂直同步
+app.commandLine.appendSwitch('disable-gpu-vsync');
+// 3. 开启硬件加速（忽略黑名单）
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+// 4. 修复部分系统的 ANGLE 及 GPU 沙盒崩溃报错
+app.commandLine.appendSwitch('disable-gpu-sandbox');
 
 const userDataPath = path.join(app.getPath('userData'), 'WebManiaData');
 if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath, { recursive: true });
@@ -18,13 +27,9 @@ if (sysConfig.renderer === 'd3d12') app.commandLine.appendSwitch('use-angle', 'd
 else if (sysConfig.renderer === 'd3d11') app.commandLine.appendSwitch('use-angle', 'd3d11');
 else if (sysConfig.renderer === 'graphite') app.commandLine.appendSwitch('enable-skia-graphite');
 
-if (sysConfig.fpsLimit === 'unlimited') {
-    app.commandLine.appendSwitch('disable-frame-rate-limit');
-}
-
 global.USER_DATA_PATH = userDataPath;
 
-const { startServer } = require('./server.js');
+const { startServer, winControl } = require('./server.js');
 
 let mainWindow;
 let currentPort = 3000;
@@ -46,7 +51,21 @@ async function createWindow() {
 
     mainWindow.loadURL(`http://localhost:${currentPort}`);
 
+    // Kiosk 动态控制
+    winControl.on('set-kiosk', (val) => {
+        if (mainWindow) {
+            mainWindow.setKiosk(val);
+            if (val) {
+                // 进入 Kiosk 时，全局强绑 Win 键，防止误触弹出开始菜单
+                globalShortcut.register('Super', () => { console.log('Win key blocked in Kiosk'); });
+            } else {
+                globalShortcut.unregister('Super');
+            }
+        }
+    });
+
     mainWindow.on('closed', function () {
+        globalShortcut.unregisterAll();
         mainWindow = null;
     });
 }

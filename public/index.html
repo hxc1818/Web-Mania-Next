@@ -34,14 +34,14 @@
         <div id="settings-btn" class="top-btn" data-i18n="settings">设置</div>
         
         <div class="search-bar-container" id="search-bar-container">
-            <input type="text" id="search-input" class="search-input" placeholder="搜索标题、艺术家、难度..." data-i18n="search_placeholder" oninput="renderMapList()">
-            <select id="sort-field" class="search-select" onchange="renderMapList()">
+            <input type="text" id="search-input" class="search-input" placeholder="搜索标题、艺术家、难度..." data-i18n="search_placeholder">
+            <select id="sort-field" class="search-select">
                 <option value="title" data-i18n="sort_title">标题 (A-Z)</option>
                 <option value="artist" data-i18n="sort_artist">艺术家 (A-Z)</option>
                 <option value="stars" data-i18n="sort_diff">难度</option>
                 <option value="bpm" data-i18n="sort_bpm">BPM</option>
             </select>
-            <select id="sort-dir" class="search-select" onchange="renderMapList()">
+            <select id="sort-dir" class="search-select">
                 <option value="asc" data-i18n="sort_asc">升序</option>
                 <option value="desc" data-i18n="sort_desc">降序</option>
             </select>
