@@ -254,7 +254,8 @@
         let gameEngine = null;
         let audioCtx = null;
         
-        // 加载用户设置并生成按键映射
+        let currentInitId = 0; // 防止快速重试导致多重引擎实例化的唯一标识符
+        
         const defaultSettings = { 
             offset: 0, scrollSpeed: 1000, trackScale: 1.0, bgBlur: 8, bgDim: 80, 
             laneColors: ['#ffffff', '#34d399', '#34d399', '#ffffff'],
@@ -266,7 +267,6 @@
         if(!userSettings.keyBinds) userSettings.keyBinds = [['KeyD', ''], ['KeyF', ''], ['KeyJ', ''], ['KeyK', '']];
         let history = JSON.parse(localStorage.getItem('webmania_history') || '{}');
 
-        // 动态生成 KEY_MAP
         const KEY_MAP = {};
         userSettings.keyBinds.forEach((binds, laneIndex) => {
             binds.forEach(key => {
@@ -470,7 +470,6 @@
                 this.isSpectator = isSpectator; 
                 this.isReplay = isReplayMode; 
 
-                // 基于谱面解析出的 OD 来动态生成判定区间 (公式与 osu! 官网一致)
                 this.od = beatmapData.od !== undefined ? beatmapData.od : 5;
                 this.judge = {
                     max: 16,
@@ -522,6 +521,17 @@
                 this.progressBar = document.getElementById('song-progress-bar');
 
                 this.lastMultiSend = 0;
+
+                // 强制初始化重置所有视觉 HUD 和样式，彻底解决重试时的残留问题
+                this.hudScore.innerText = '0000000';
+                this.hudAcc.innerText = '100.00%';
+                this.hudPP.innerText = '0';
+                this.hudUR.innerText = '0.00';
+                this.hudRank.innerText = '';
+                document.getElementById('hud-combo').style.display = 'none';
+                document.getElementById('hud-combo').innerText = '0x';
+                document.getElementById('game-canvas').style.filter = 'none';
+                this.progressBar.style.width = '0%';
             }
 
             start() {
@@ -706,6 +716,8 @@
                 if (!isMulti && !this.isReplay && this.leaderboard.length > 0 && this.state.scoreV2 > 0) {
                     let rank = 1; for (let s of this.leaderboard) { if (this.state.scoreV2 < s._realScore) rank++; }
                     this.hudRank.innerText = '#' + rank;
+                } else {
+                    this.hudRank.innerText = '';
                 }
             }
 
@@ -908,6 +920,8 @@
         }
 
         async function initGame(isSpectating) {
+            const initId = ++currentInitId; // 获取当前初始化分配的唯一事务ID
+
             try {
                 const gameBgEl = document.getElementById('game-bg');
                 const videoCanvas = document.getElementById('bg-video-canvas');
@@ -928,7 +942,9 @@
                 }
 
                 const osuRes = await fetch(`${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.osuPath)}`);
+                if (initId !== currentInitId) return; // 拦截：如果有更新的请求，直接丢弃本次解析
                 const osuText = await osuRes.text();
+                if (initId !== currentInitId) return; 
                 const parsed = parseOsuFile(osuText);
 
                 if (parsed.videoPath) {
@@ -983,10 +999,17 @@
 
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const audioRes = await fetch(`${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.audioPath)}`);
+                if (initId !== currentInitId) return;
                 const arrayBuffer = await audioRes.arrayBuffer();
+                if (initId !== currentInitId) return;
                 const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                if (initId !== currentInitId) return;
                 
                 const canvas = document.getElementById('game-canvas');
+
+                // 强制防御，防止漏网之鱼
+                if (gameEngine) gameEngine.quit();
+
                 gameEngine = new GameEngine(
                     canvas, parsed, audioBuffer, audioCtx, 
                     selectedMap.stars || getFakeStars(selectedMap.version), 
@@ -994,8 +1017,10 @@
                 );
                 gameEngine.start();
             } catch (e) {
-                alert('谱面加载失败: ' + e.message);
-                window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
+                if (initId === currentInitId) { // 仅当自己是有效线程时弹错
+                    alert('谱面加载失败: ' + e.message);
+                    window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
+                }
             }
         }
 
@@ -1196,7 +1221,23 @@
             isResuming = false;
             document.getElementById('pause-screen').classList.remove('active'); 
             if (window.videoPlayer) { window.videoPlayer.destroy(); window.videoPlayer = null; }
-            if (gameEngine) gameEngine.quit(); 
+            
+            if (gameEngine) {
+                gameEngine.quit();
+                gameEngine = null; // 彻底剥离旧实例引用，防止鬼影事件
+            }
+            
+            // 确保 DOM 即时重置，不留任何一帧的视觉残留
+            document.getElementById('hud-score').innerText = '0000000';
+            document.getElementById('hud-acc').innerText = '100.00%';
+            document.getElementById('hud-pp').innerText = '0';
+            document.getElementById('hud-ur').innerText = '0.00';
+            document.getElementById('hud-rank').innerText = '';
+            document.getElementById('hud-combo').style.display = 'none';
+            document.getElementById('hud-combo').innerText = '0x';
+            document.getElementById('game-canvas').style.filter = 'none';
+            document.getElementById('song-progress-bar').style.width = '0%';
+
             initGame(false); 
         }
 
@@ -1205,7 +1246,12 @@
             isResuming = false;
             document.getElementById('pause-screen').classList.remove('active'); 
             if (window.videoPlayer) { window.videoPlayer.destroy(); window.videoPlayer = null; }
-            if (gameEngine) gameEngine.quit(); 
+            
+            if (gameEngine) {
+                gameEngine.quit(); 
+                gameEngine = null;
+            }
+            
             window.location.href = isMulti ? 'multiplayer.html' : 'index.html'; 
         }
         
@@ -1240,6 +1286,7 @@
             }
 
             // 单人游戏长按反引号键 (`) 快速重试
+            // 注意：只有当 gameEngine 实例存在时才允许触发，避免短时间内被重复滥用
             if (e.code === 'Backquote' && gameEngine && gameEngine.isRunning && !isMulti && !isReplayMode) {
                 if (!retryHoldTimer) {
                     document.getElementById('retry-progress-overlay').style.display = 'flex';
