@@ -1,4 +1,4 @@
-<!-- /hxc1818/web-mania-next/Web-Mania-Next-4b57dc9d1d5364f1e18bbda51bdf127b659257d1/public/index.html -->
+<!-- /public/index.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -89,6 +89,9 @@
         .settings-close-btn:hover { background: #60a5fa; }
         .color-picker-row { display: flex; justify-content: space-between; gap: 10px; }
         .color-picker { width: 100%; height: 40px; border: none; outline: none; border-radius: 8px; cursor: pointer; background: transparent; }
+
+        .keybind-input { cursor: pointer; text-align: center; padding: 10px 5px; }
+        .keybind-input:focus { background: rgba(59, 130, 246, 0.2); }
 
         .color-ss { color: #fbbf24; text-shadow: 0 0 10px rgba(251, 191, 36, 0.4); } 
         .color-s { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.4); } 
@@ -227,6 +230,32 @@
             <div class="setting-row"><label class="setting-label">背景暗化 (0-100)</label><input type="number" id="set-bg-dim" class="setting-input" min="0" max="100"></div>
             
             <div class="setting-row" style="margin-top: 25px;">
+                <label class="setting-label">按键绑定 (每条轨道最多2个，点选并按键绑定，右键或Esc清除)</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="display:flex; gap:5px; align-items:center;">
+                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 1</span>
+                        <input type="text" id="bind-0-0" class="setting-input keybind-input" readonly placeholder="空">
+                        <input type="text" id="bind-0-1" class="setting-input keybind-input" readonly placeholder="空">
+                    </div>
+                    <div style="display:flex; gap:5px; align-items:center;">
+                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 2</span>
+                        <input type="text" id="bind-1-0" class="setting-input keybind-input" readonly placeholder="空">
+                        <input type="text" id="bind-1-1" class="setting-input keybind-input" readonly placeholder="空">
+                    </div>
+                    <div style="display:flex; gap:5px; align-items:center;">
+                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 3</span>
+                        <input type="text" id="bind-2-0" class="setting-input keybind-input" readonly placeholder="空">
+                        <input type="text" id="bind-2-1" class="setting-input keybind-input" readonly placeholder="空">
+                    </div>
+                    <div style="display:flex; gap:5px; align-items:center;">
+                        <span style="color:#aaa;font-size:12px;width:40px;">轨道 4</span>
+                        <input type="text" id="bind-3-0" class="setting-input keybind-input" readonly placeholder="空">
+                        <input type="text" id="bind-3-1" class="setting-input keybind-input" readonly placeholder="空">
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-row" style="margin-top: 25px;">
                 <label class="setting-label">轨道颜色 (1 至 4)</label>
                 <div class="color-picker-row">
                     <input type="color" id="lane-color-1" class="color-picker" value="#ffffff">
@@ -256,10 +285,15 @@
         const API_URL = '/api'; 
         const REMOTE_API_URL = 'http://hahai18.info:2052/api'; 
 
-        const defaultSettings = { offset: 0, scrollSpeed: 1000, trackScale: 1.0, bgBlur: 8, bgDim: 80, laneColors: ['#ffffff', '#34d399', '#34d399', '#ffffff'] };
+        const defaultSettings = { 
+            offset: 0, scrollSpeed: 1000, trackScale: 1.0, bgBlur: 8, bgDim: 80, 
+            laneColors: ['#ffffff', '#34d399', '#34d399', '#ffffff'],
+            keyBinds: [['KeyD', ''], ['KeyF', ''], ['KeyJ', ''], ['KeyK', '']] 
+        };
         let userSettings = JSON.parse(localStorage.getItem('webmania_settings')) || defaultSettings;
         if(userSettings.bgDim === undefined) userSettings.bgDim = 80;
         if(!userSettings.laneColors) userSettings.laneColors = ['#ffffff', '#34d399', '#34d399', '#ffffff'];
+        if(!userSettings.keyBinds) userSettings.keyBinds = [['KeyD', ''], ['KeyF', ''], ['KeyJ', ''], ['KeyK', '']];
         
         let beatmaps = [];
         let mapGroups = {};
@@ -276,19 +310,27 @@
         
         const isSelector = new URLSearchParams(window.location.search).get('selector') === 'true';
 
+        // 懒加载图片优化：加入防抖逻辑，防止快速滚动将浏览器网络连接池占满导致打谱或播放音频卡死
         const bgObserver = new IntersectionObserver((entries, obs) => {
             entries.forEach(entry => {
+                const target = entry.target;
                 if (entry.isIntersecting) {
-                    const target = entry.target;
-                    const bg = target.getAttribute('data-bg');
-                    if (bg) {
-                        target.style.backgroundImage = `url("${bg}")`;
-                        target.removeAttribute('data-bg'); 
+                    target.bgTimeout = setTimeout(() => {
+                        const bg = target.getAttribute('data-bg');
+                        if (bg) {
+                            target.style.backgroundImage = `url("${bg}")`;
+                            target.removeAttribute('data-bg'); 
+                        }
+                        obs.unobserve(target); 
+                    }, 150); // 防抖延迟150ms
+                } else {
+                    if (target.bgTimeout) {
+                        clearTimeout(target.bgTimeout);
+                        target.bgTimeout = null;
                     }
-                    obs.unobserve(target); 
                 }
             });
-        }, { rootMargin: '300px 0px' });
+        }, { rootMargin: '200px 0px' });
 
         window.addEventListener('DOMContentLoaded', () => {
             if (isSelector) {
@@ -316,6 +358,22 @@
                 if (status) status.innerText = '正在初始化扫描...';
                 doScan(false); 
             }
+
+            // 按键绑定监听逻辑
+            document.querySelectorAll('.keybind-input').forEach(inp => {
+                inp.addEventListener('keydown', (e) => {
+                    e.preventDefault();
+                    if (e.code === 'Escape' || e.code === 'Backspace') {
+                        inp.value = '';
+                    } else {
+                        inp.value = e.code;
+                    }
+                });
+                inp.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    inp.value = '';
+                });
+            });
         });
 
         document.getElementById('select-folder-btn').onclick = async () => {
@@ -369,6 +427,12 @@
             document.getElementById('lane-color-3').value = userSettings.laneColors[2];
             document.getElementById('lane-color-4').value = userSettings.laneColors[3];
             
+            // 加载按键绑定
+            for(let i=0; i<4; i++) {
+                document.getElementById(`bind-${i}-0`).value = userSettings.keyBinds[i][0] || '';
+                document.getElementById(`bind-${i}-1`).value = userSettings.keyBinds[i][1] || '';
+            }
+
             document.getElementById('set-folder').value = localStorage.getItem('wm_folderPath') || '';
             document.getElementById('set-username').value = localStorage.getItem('wm_username') || '';
 
@@ -409,6 +473,12 @@
                     document.getElementById('lane-color-2').value,
                     document.getElementById('lane-color-3').value,
                     document.getElementById('lane-color-4').value
+                ],
+                keyBinds: [
+                    [document.getElementById('bind-0-0').value, document.getElementById('bind-0-1').value],
+                    [document.getElementById('bind-1-0').value, document.getElementById('bind-1-1').value],
+                    [document.getElementById('bind-2-0').value, document.getElementById('bind-2-1').value],
+                    [document.getElementById('bind-3-0').value, document.getElementById('bind-3-1').value]
                 ]
             };
             localStorage.setItem('webmania_settings', JSON.stringify(userSettings));

@@ -1,4 +1,4 @@
-<!-- /client/public/game.html -->
+<!-- /public/game.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -28,10 +28,11 @@
         #song-progress-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 6px; background: rgba(255,255,255,0.1); z-index: 100; }
         #song-progress-bar { width: 0%; height: 100%; background: #3b82f6; transition: width 0.1s linear; }
 
-        #esc-progress-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 200; display: none; justify-content: center; align-items: center; flex-direction: column; backdrop-filter: blur(5px); }
+        #esc-progress-overlay, #retry-progress-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 200; display: none; justify-content: center; align-items: center; flex-direction: column; backdrop-filter: blur(5px); }
         .esc-text { font-size: 30px; font-weight: 800; margin-bottom: 20px; text-shadow: 0 0 10px rgba(0,0,0,0.5); }
-        #esc-bar-container { width: 400px; height: 15px; background: rgba(255,255,255,0.2); border-radius: 10px; overflow: hidden; }
+        #esc-bar-container, #retry-bar-container { width: 400px; height: 15px; background: rgba(255,255,255,0.2); border-radius: 10px; overflow: hidden; }
         #esc-bar { width: 0%; height: 100%; background: #ef4444; }
+        #retry-bar { width: 0%; height: 100%; background: #3b82f6; }
 
         #pause-screen { z-index: 100; background: rgba(0,0,0,0.85); justify-content: center; align-items: center; backdrop-filter: blur(10px); }
         .pause-title { font-size: 50px; font-weight: 800; letter-spacing: 5px; margin-bottom: 40px; color: #fff; text-shadow: 0 0 20px rgba(255,255,255,0.5); }
@@ -129,6 +130,12 @@
     <div id="esc-progress-overlay">
         <div class="esc-text">长按 ESC 返回房间...</div>
         <div id="esc-bar-container"><div id="esc-bar"></div></div>
+    </div>
+
+    <!-- 快速重试覆盖层 -->
+    <div id="retry-progress-overlay">
+        <div class="esc-text">长按 ` 键快速重试...</div>
+        <div id="retry-bar-container"><div id="retry-bar"></div></div>
     </div>
 
     <div id="spectator-grid" class="screen"></div>
@@ -241,18 +248,31 @@
 
         const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
         const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
-        const KEY_MAP = { 'KeyD': 0, 'KeyF': 1, 'KeyJ': 2, 'KeyK': 3, 'Numpad7': 2, 'Numpad8': 3 };
 
         let selectedMap = null;
         let currentLeaderboard = [];
         let gameEngine = null;
         let audioCtx = null;
         
-        const defaultSettings = { offset: 0, scrollSpeed: 1000, trackScale: 1.0, bgBlur: 8, bgDim: 80, laneColors: ['#ffffff', '#34d399', '#34d399', '#ffffff'] };
+        // 加载用户设置并生成按键映射
+        const defaultSettings = { 
+            offset: 0, scrollSpeed: 1000, trackScale: 1.0, bgBlur: 8, bgDim: 80, 
+            laneColors: ['#ffffff', '#34d399', '#34d399', '#ffffff'],
+            keyBinds: [['KeyD', ''], ['KeyF', ''], ['KeyJ', ''], ['KeyK', '']] 
+        };
         let userSettings = JSON.parse(localStorage.getItem('webmania_settings')) || defaultSettings;
         if(userSettings.bgDim === undefined) userSettings.bgDim = 80;
         if(!userSettings.laneColors) userSettings.laneColors = ['#ffffff', '#34d399', '#34d399', '#ffffff'];
+        if(!userSettings.keyBinds) userSettings.keyBinds = [['KeyD', ''], ['KeyF', ''], ['KeyJ', ''], ['KeyK', '']];
         let history = JSON.parse(localStorage.getItem('webmania_history') || '{}');
+
+        // 动态生成 KEY_MAP
+        const KEY_MAP = {};
+        userSettings.keyBinds.forEach((binds, laneIndex) => {
+            binds.forEach(key => {
+                if (key) KEY_MAP[key] = laneIndex;
+            });
+        });
 
         const isMulti = sessionStorage.getItem('webmania_multi') === 'true';
         const role = sessionStorage.getItem('webmania_multi_role');
@@ -272,6 +292,8 @@
         let isResuming = false;
         let escHoldTimer = null;
         let escProgress = 0;
+        let retryHoldTimer = null;
+        let retryProgress = 0;
 
         function getStarColor(stars) {
             if (stars < 0.1) return '#aaaaaa';
@@ -1216,6 +1238,26 @@
                     }
                 }
             }
+
+            // 单人游戏长按反引号键 (`) 快速重试
+            if (e.code === 'Backquote' && gameEngine && gameEngine.isRunning && !isMulti && !isReplayMode) {
+                if (!retryHoldTimer) {
+                    document.getElementById('retry-progress-overlay').style.display = 'flex';
+                    retryHoldTimer = setInterval(() => {
+                        retryProgress += 5;
+                        document.getElementById('retry-bar').style.width = retryProgress + '%';
+                        if (retryProgress >= 100) {
+                            retryGame();
+                            clearInterval(retryHoldTimer);
+                            retryHoldTimer = null;
+                            retryProgress = 0;
+                            document.getElementById('retry-progress-overlay').style.display = 'none';
+                            document.getElementById('retry-bar').style.width = '0%';
+                        }
+                    }, 20); // 约 400ms 触发重试
+                }
+            }
+
             if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning) { 
                 if (!e.repeat && !isReplayMode) gameEngine.onKeyDown(KEY_MAP[e.code]); 
             }
@@ -1228,6 +1270,15 @@
                 escProgress = 0;
                 document.getElementById('esc-progress-overlay').style.display = 'none';
                 document.getElementById('esc-bar').style.width = '0%';
+            }
+            if (e.code === 'Backquote' && !isMulti && !isReplayMode) {
+                if (retryHoldTimer) {
+                    clearInterval(retryHoldTimer);
+                    retryHoldTimer = null;
+                    retryProgress = 0;
+                    document.getElementById('retry-progress-overlay').style.display = 'none';
+                    document.getElementById('retry-bar').style.width = '0%';
+                }
             }
             if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode) {
                 gameEngine.onKeyUp(KEY_MAP[e.code]); 
