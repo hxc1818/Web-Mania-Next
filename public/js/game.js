@@ -2,9 +2,7 @@
 const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
 const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
 
-// 将全局静态常量更改为 let，稍后根据图动态生成
 let KEY_MAP = {};
-
 let selectedMap = null;
 let currentLeaderboard = [];
 let gameEngine = null;
@@ -32,6 +30,8 @@ let escProgress = 0;
 let retryHoldTimer = null;
 let retryProgress = 0;
 
+// 注意：这里删除了 let userSettings = ... 的重复声明，直接使用 common.js 中已经初始化好的 userSettings 变量！
+
 window.onload = async () => {
     const mapData = sessionStorage.getItem('webmania_current_map');
     if (mapData) selectedMap = JSON.parse(mapData);
@@ -40,6 +40,17 @@ window.onload = async () => {
         return window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
     }
     
+    if (userSettings.autoKiosk && !specClientUid) {
+        document.documentElement.requestFullscreen().catch(()=>{});
+    }
+
+    if (userSettings.showFps && !specClientUid) {
+        const fpsDiv = document.createElement('div');
+        fpsDiv.id = 'fps-counter';
+        fpsDiv.style.cssText = 'position:fixed; bottom:10px; right:10px; color:#10b981; font-weight:bold; font-family:monospace; font-size:20px; z-index:9999; text-shadow:0 2px 4px rgba(0,0,0,0.8);';
+        document.body.appendChild(fpsDiv);
+    }
+
     const lbData = sessionStorage.getItem('webmania_current_leaderboard');
     currentLeaderboard = lbData ? JSON.parse(lbData) : [];
     
@@ -169,7 +180,7 @@ function getGrade(acc, failed) {
 class GameEngine {
     constructor(canvas, beatmapData, audioBuffer, audioCtx, stars, onEnd, leaderboard, isSpectator = false) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
+        this.ctx = canvas.getContext('2d', { desynchronized: userSettings.desync || false });
         this.notes = beatmapData.notes;
         this.audioBuffer = audioBuffer;
         this.audioCtx = audioCtx;
@@ -189,36 +200,21 @@ class GameEngine {
             p50:  Math.max(16, 151 - 3 * this.od)
         };
 
-        this.scrollSpeed = userSettings.scrollSpeed;
+        this.scrollSpeed = userSettings.scrollSpeed || 1000;
         
-        // 动态配置按键数量
         this.laneCount = beatmapData.cs || 4;
         
-        // 动态计算基础轨道宽度，按键越多，单列越窄
         let baseLaneWidth = 100;
         if(this.laneCount > 4) baseLaneWidth = 80;
         if(this.laneCount > 7) baseLaneWidth = 60;
         if(this.laneCount > 10) baseLaneWidth = 45;
         if(this.laneCount > 15) baseLaneWidth = 35;
         
-        this.trackWidth = (this.laneCount * baseLaneWidth) * userSettings.trackScale;
+        this.trackWidth = (this.laneCount * baseLaneWidth) * (userSettings.trackScale || 1.0);
         this.laneWidth = this.trackWidth / this.laneCount;
         this.hitLineY = this.canvas.height - 120;
         
-        // 对称动态生成轨道颜色
-        this.laneColors = [];
-        const colorOut = userSettings.laneColors[0] || '#ffffff';
-        const colorIn = userSettings.laneColors[1] || '#34d399';
-        const colorCenter = userSettings.laneColors[2] || '#fbbf24';
-
-        for (let i = 0; i < this.laneCount; i++) {
-            if (this.laneCount % 2 !== 0 && i === Math.floor(this.laneCount / 2)) {
-                this.laneColors.push(colorCenter);
-            } else {
-                const distanceFromEdge = Math.min(i, this.laneCount - 1 - i);
-                this.laneColors.push(distanceFromEdge % 2 === 0 ? colorOut : colorIn);
-            }
-        }
+        this.laneColors = userSettings.laneColors[this.laneCount] || [];
 
         this.keys = new Array(this.laneCount).fill(false);
         this.isRunning = false;
@@ -265,12 +261,39 @@ class GameEngine {
         document.getElementById('hud-combo').innerText = '0x';
         document.getElementById('game-canvas').style.filter = 'none';
         this.progressBar.style.width = '0%';
+
+        this.lastFrameTime = performance.now();
+        this.frameCount = 0;
+        this.fpsUpdateTime = 0;
+
+        if (userSettings.uiScale) {
+            document.querySelector('.game-hud').style.transform = `scale(${userSettings.uiScale})`;
+            document.querySelector('.game-hud').style.transformOrigin = 'top left';
+            document.getElementById('hud-rank').style.transform = `scale(${userSettings.uiScale})`;
+            document.getElementById('hud-rank').style.transformOrigin = 'top right';
+        }
+
+        // Setup Volume
+        this.masterGain = this.audioCtx.createGain();
+        this.masterGain.connect(this.audioCtx.destination);
+        this.musicGain = this.audioCtx.createGain();
+        this.musicGain.connect(this.masterGain);
+
+        const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+        const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+        const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+
+        this.masterGain.gain.value = document.hasFocus() ? mVol : bgVol;
+        this.musicGain.gain.value = muVol;
+
+        window.addEventListener('blur', () => { if(this.masterGain) this.masterGain.gain.value = bgVol; });
+        window.addEventListener('focus', () => { if(this.masterGain) this.masterGain.gain.value = mVol; });
     }
 
     start() {
         this.audioSource = this.audioCtx.createBufferSource();
         this.audioSource.buffer = this.audioBuffer;
-        this.audioSource.connect(this.audioCtx.destination);
+        this.audioSource.connect(this.musicGain);
         
         if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
         this.startTime = this.audioCtx.currentTime;
@@ -306,7 +329,13 @@ class GameEngine {
         if (this.state.allHitErrors.length > 0 && !this.state.failed) {
             let sum = 0;
             for (let d of this.state.allHitErrors) sum += d;
-            localStorage.setItem('webmania_last_error', Math.round(sum / this.state.allHitErrors.length));
+            const err = Math.round(sum / this.state.allHitErrors.length);
+            localStorage.setItem('webmania_last_error', err);
+
+            if (userSettings.autoOffset) {
+                userSettings.offset += err;
+                localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
+            }
         }
 
         if(this.onEnd) this.onEnd({
@@ -320,7 +349,7 @@ class GameEngine {
         });
     }
 
-    getTime() { return ((this.audioCtx.currentTime - this.startTime) * 1000) - userSettings.offset; }
+    getTime() { return ((this.audioCtx.currentTime - this.startTime) * 1000) - (userSettings.offset || 0); }
 
     addJudge(type, diff = 0, lane = -1, isTail = false) {
         if(this.state.failed && type === 'miss') return; 
@@ -530,6 +559,29 @@ class GameEngine {
 
     loop() {
         if (!this.isRunning || this.isPaused) return;
+
+        const hrTime = performance.now();
+        if (userSettings.fpsLimit && userSettings.fpsLimit !== 'unlimited') {
+            const targets = { 'vsync': 60, '2x': 120, '4x': 240, '8x': 480 };
+            const targetFps = targets[userSettings.fpsLimit] || 60;
+            if (hrTime - this.lastFrameTime < 1000 / targetFps) {
+                requestAnimationFrame(this.loop.bind(this));
+                return;
+            }
+        }
+        
+        if (userSettings.showFps && !this.isSpectator) {
+            this.frameCount++;
+            if (hrTime - this.fpsUpdateTime >= 1000) {
+                const fpsEl = document.getElementById('fps-counter');
+                if(fpsEl) fpsEl.innerText = this.frameCount + ' FPS';
+                this.frameCount = 0;
+                this.fpsUpdateTime = hrTime;
+            }
+        }
+
+        this.lastFrameTime = hrTime;
+
         const now = this.getTime();
         
         if (this.totalLengthMs > 0) {
@@ -632,19 +684,21 @@ class GameEngine {
             ctx.globalAlpha = 1.0; ctx.shadowBlur = 0; ef.scale += 0.05; ef.life -= 0.04; if (ef.life <= 0) this.state.effect = null;
         }
 
-        const meterY = this.hitLineY + 60; const xC = canvas.width / 2; const scale = 1.5; 
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(xC - (150 * scale), meterY - 5, 300 * scale, 10);
-        ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(xC - 1, meterY - 8, 2, 16); 
-        ctx.fillStyle = '#fbbf24'; ctx.fillRect(xC - (this.judge.p300 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p300 * scale), meterY - 5, 1, 10);
-        ctx.fillStyle = '#60a5fa'; ctx.fillRect(xC - (this.judge.p100 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p100 * scale), meterY - 5, 1, 10);
-        for (let i = 0; i < this.state.hitErrors.length; i++) {
-            const err = this.state.hitErrors[i]; const age = now - err.time;
-            if (age > 3000) continue; 
-            let alpha = 1 - (age / 3000); let absErr = Math.abs(err.diff); let color = '#60a5fa';
-            if (absErr <= this.judge.max) color = '#ffffff'; else if (absErr <= this.judge.p300) color = '#fbbf24'; else if (absErr <= this.judge.p200) color = '#34d399'; else if (absErr <= this.judge.p100) color = '#60a5fa'; else color = '#a78bfa';
-            ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillRect(xC + (err.diff * scale) - 2, meterY - 8, 4, 16);
+        if (userSettings.hitErrorMeter !== false) {
+            const meterY = this.hitLineY + 60; const xC = canvas.width / 2; const scale = 1.5; 
+            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(xC - (150 * scale), meterY - 5, 300 * scale, 10);
+            ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(xC - 1, meterY - 8, 2, 16); 
+            ctx.fillStyle = '#fbbf24'; ctx.fillRect(xC - (this.judge.p300 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p300 * scale), meterY - 5, 1, 10);
+            ctx.fillStyle = '#60a5fa'; ctx.fillRect(xC - (this.judge.p100 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p100 * scale), meterY - 5, 1, 10);
+            for (let i = 0; i < this.state.hitErrors.length; i++) {
+                const err = this.state.hitErrors[i]; const age = now - err.time;
+                if (age > 3000) continue; 
+                let alpha = 1 - (age / 3000); let absErr = Math.abs(err.diff); let color = '#60a5fa';
+                if (absErr <= this.judge.max) color = '#ffffff'; else if (absErr <= this.judge.p300) color = '#fbbf24'; else if (absErr <= this.judge.p200) color = '#34d399'; else if (absErr <= this.judge.p100) color = '#60a5fa'; else color = '#a78bfa';
+                ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillRect(xC + (err.diff * scale) - 2, meterY - 8, 4, 16);
+            }
+            ctx.globalAlpha = 1.0;
         }
-        ctx.globalAlpha = 1.0;
 
         ctx.fillStyle = '#111'; ctx.fillRect(offsetX, 0, this.trackWidth, 10);
         ctx.fillStyle = this.state.hp > 20 ? '#10b981' : '#ef4444'; ctx.fillRect(offsetX, 0, (this.state.hp / 100) * this.trackWidth, 10);
@@ -658,7 +712,7 @@ async function initGame(isSpectating) {
         const gameBgEl = document.getElementById('game-bg');
         const videoCanvas = document.getElementById('bg-video-canvas');
 
-        let filterStr = `brightness(${(100 - userSettings.bgDim) / 100})`;
+        let filterStr = `brightness(${(100 - (userSettings.bgDim !== undefined ? userSettings.bgDim : 80)) / 100})`;
         if (userSettings.bgBlur > 0) filterStr += ` blur(${userSettings.bgBlur}px)`;
 
         if (selectedMap.bgPath) {
@@ -679,7 +733,6 @@ async function initGame(isSpectating) {
         if (initId !== currentInitId) return; 
         const parsed = parseOsuFile(osuText);
 
-        // 动态加载对应K数的键位设置
         KEY_MAP = {};
         const currentCS = parsed.cs || selectedMap.cs || 4;
         let currentBinds = userSettings.keyBinds[currentCS];
@@ -690,7 +743,7 @@ async function initGame(isSpectating) {
             });
         });
 
-        if (parsed.videoPath) {
+        if (parsed.videoPath && userSettings.noStoryboard !== true) {
             const cleanVideoPath = parsed.videoPath.trim();
             const fullVideoPath = selectedMap.dirPath + '/' + cleanVideoPath;
             
@@ -698,7 +751,7 @@ async function initGame(isSpectating) {
             videoCanvas.style.display = 'block';
             videoCanvas.style.filter = filterStr;
 
-            const streamUrl = `${LOCAL_API_URL}/video_stream?path=${encodeURIComponent(fullVideoPath)}`;
+            const streamUrl = `${LOCAL_API_URL}/video_stream?path=${encodeURIComponent(fullVideoPath)}&hwAccel=${userSettings.hwAccel ? 'true' : 'false'}`;
             if (window.videoPlayer) window.videoPlayer.destroy();
             
             class FetchStreamSource {
@@ -741,6 +794,11 @@ async function initGame(isSpectating) {
         }
 
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        if (userSettings.audioDevice && userSettings.audioDevice !== 'default') {
+            if (audioCtx.setSinkId) await audioCtx.setSinkId(userSettings.audioDevice);
+        }
+
         const audioRes = await fetch(`${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.audioPath)}`);
         if (initId !== currentInitId) return;
         const arrayBuffer = await audioRes.arrayBuffer();
@@ -780,7 +838,7 @@ function parseOsuFile(osuText) {
         else if (section === '[Difficulty]') { 
             if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim()); 
             if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
-            if (line.startsWith('CircleSize:')) cs = parseFloat(line.split(':')[1].trim()); // 提取K数
+            if (line.startsWith('CircleSize:')) cs = parseFloat(line.split(':')[1].trim());
         } 
         else if (section === '[Events]') {
             const parts = line.split(',');
@@ -795,7 +853,6 @@ function parseOsuFile(osuText) {
             const parts = line.split(',');
             if (parts.length >= 5) {
                 const x = parseInt(parts[0]), time = parseInt(parts[2]), type = parseInt(parts[3]);
-                // 通过公式计算真正的列数
                 const column = Math.floor(x * cs / 512);
                 if (column >= 0 && column < cs) {
                     if ((type & 128) !== 0) {
@@ -990,10 +1047,14 @@ function quitGame() {
         gameEngine = null;
     }
     
+    if (document.fullscreenElement) {
+        document.exitFullscreen().catch(()=>{});
+    }
+
     window.location.href = isMulti ? 'multiplayer.html' : 'index.html'; 
 }
 
-document.getElementById('back-to-select').onclick = () => window.location.href = isMulti ? 'multiplayer.html' : 'index.html';
+document.getElementById('back-to-select').onclick = () => quitGame();
 
 window.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && gameEngine && gameEngine.isRunning) {
@@ -1067,3 +1128,35 @@ window.addEventListener('keyup', (e) => {
         gameEngine.onKeyUp(KEY_MAP[e.code]); 
     }
 });
+
+if (userSettings.touchClick) {
+    const canvas = document.getElementById('game-canvas');
+    canvas.addEventListener('touchstart', (e) => {
+        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode) return;
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const x = touch.clientX - rect.left;
+            const offsetX = (canvas.width - gameEngine.trackWidth) / 2;
+            if (x >= offsetX && x <= offsetX + gameEngine.trackWidth) {
+                const lane = Math.floor((x - offsetX) / gameEngine.laneWidth);
+                if(lane >= 0 && lane < gameEngine.laneCount) {
+                    gameEngine.onKeyDown(lane);
+                    touch.webmaniaLane = lane; 
+                }
+            }
+        }
+    }, {passive: false});
+
+    canvas.addEventListener('touchend', (e) => {
+        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode) return;
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            if(touch.webmaniaLane !== undefined) {
+                gameEngine.onKeyUp(touch.webmaniaLane);
+            }
+        }
+    }, {passive: false});
+}

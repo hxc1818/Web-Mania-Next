@@ -84,7 +84,6 @@ function parseOsuMetadataFromString(content) {
         }
     }
     
-    // 只解析 Mania 模式
     if (mode === 3) {
         if (objCount > 0 && lastTime > firstTime) {
             const drainTime = (lastTime - firstTime) / 1000;
@@ -114,6 +113,27 @@ function clearCache() {
         try { fs.unlinkSync(cacheFile); } catch(e) {}
     }
 }
+
+app.post('/api/sys_config', (req, res) => {
+    try {
+        const configPath = path.join(APP_DATA_PATH, 'sys_config.json');
+        fs.writeFileSync(configPath, JSON.stringify(req.body));
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/open_folder', (req, res) => {
+    try {
+        const { shell } = require('electron');
+        const folderPath = req.query.path;
+        if (folderPath && fs.existsSync(folderPath)) {
+            shell.openPath(folderPath);
+            res.json({ success: true });
+        } else {
+            res.json({ success: false });
+        }
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 app.post('/api/local_scores', (req, res) => {
     try {
@@ -259,7 +279,7 @@ app.post('/api/scan', (req, res) => {
                             title: meta.title,
                             artist: meta.artist,
                             version: meta.version,
-                            cs: meta.cs || 4, // 携带谱面K数
+                            cs: meta.cs || 4,
                             stars: meta.stars || 0,
                             bpm: meta.bpm || 0,
                             od: meta.od || 5,
@@ -326,7 +346,6 @@ app.get('/api/sayobot_random', async (req, res) => {
                 if (result && result.data && result.data.status === 0 && result.data.data) {
                     const detailData = result.data.data;
                     if (detailData.bid_data) {
-                        // 支持所有模式为3 (Mania) 的谱面，不再限制4K
                         const maniaDiffs = detailData.bid_data.filter(d => d.mode === 3);
                         if (maniaDiffs.length > 0) {
                             if (!finalMaps.find(m => m.sid === detailData.sid)) {
@@ -416,13 +435,16 @@ app.get('/api/video_stream', (req, res) => {
     const absolutePath = path.resolve(filePath);
     if (!fs.existsSync(absolutePath)) return res.status(404).send('未找到视频');
 
+    const hwAccel = req.query.hwAccel === 'true';
+
     res.writeHead(200, {
         'Content-Type': 'video/mp2t',
         'Transfer-Encoding': 'chunked',
         'Connection': 'keep-alive'
     });
 
-    const ffmpeg = spawn('ffmpeg', [
+    const args = hwAccel ? [
+        '-hwaccel', 'auto',
         '-i', absolutePath,
         '-f', 'mpegts',
         '-codec:v', 'mpeg1video',
@@ -434,7 +456,21 @@ app.get('/api/video_stream', (req, res) => {
         '-threads', '0',
         '-an',
         '-'
-    ]);
+    ] : [
+        '-i', absolutePath,
+        '-f', 'mpegts',
+        '-codec:v', 'mpeg1video',
+        '-b:v', '1500k',
+        '-r', '30',
+        '-vf', 'scale=-1:720,format=yuv420p',
+        '-bf', '0',
+        '-muxdelay', '0.001',
+        '-threads', '0',
+        '-an',
+        '-'
+    ];
+
+    const ffmpeg = spawn('ffmpeg', args);
 
     ffmpeg.stdout.pipe(res);
     ffmpeg.on('close', () => res.end());

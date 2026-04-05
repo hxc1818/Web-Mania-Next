@@ -1,0 +1,117 @@
+<!-- /public/keybinds.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Mania Next Keybinds</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body { margin: 0; padding: 20px; background: #0f0f13; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        h1 { color: #3b82f6; margin-top: 0; border-bottom: 2px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+        .layout { display: flex; flex: 1; gap: 20px; overflow: hidden; }
+        .left-panel { width: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+        .k-btn { background: rgba(255,255,255,0.1); border: none; padding: 15px; color: #ccc; border-radius: 8px; cursor: pointer; transition: 0.2s; font-weight: bold; font-size: 16px; }
+        .k-btn:hover { background: rgba(255,255,255,0.2); }
+        .k-btn.active { background: #3b82f6; color: #fff; }
+        .right-panel { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); }
+        .lane-row { display: flex; align-items: center; margin-bottom: 15px; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; }
+        .lane-label { width: 60px; font-weight: bold; color: #fbbf24; }
+        .bind-input { flex: 1; margin: 0 5px; background: #1a1a24; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 12px; text-align: center; border-radius: 6px; cursor: pointer; outline: none; font-family: monospace; font-size: 14px; transition: 0.2s; }
+        .bind-input:focus { border-color: #3b82f6; background: rgba(59, 130, 246, 0.2); box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+        .bottom-bar { padding-top: 15px; display: flex; justify-content: flex-end; gap: 10px; }
+        .btn { padding: 12px 25px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-cancel { background: #4b5563; color: #fff; }
+        .btn-cancel:hover { background: #6b7280; }
+        .btn-save { background: #10b981; color: #fff; }
+        .btn-save:hover { background: #34d399; }
+        .hint { font-size: 12px; color: #aaa; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h1>配置键位 (Keybinds)</h1>
+    <div class="hint">左键点击格子录入按键。按 <b>Backspace</b> 或右键点击清除。</div>
+    <div class="layout">
+        <div class="left-panel" id="k-list"></div>
+        <div class="right-panel" id="binds-container"></div>
+    </div>
+    <div class="bottom-bar">
+        <button class="btn btn-cancel" onclick="window.close()">取消 (Cancel)</button>
+        <button class="btn btn-save" onclick="saveBinds()">保存并关闭 (Save)</button>
+    </div>
+
+    <script>
+        let settings = JSON.parse(localStorage.getItem('webmania_settings')) || {};
+        if(!settings.keyBinds) settings.keyBinds = {};
+        
+        // Ensure structure
+        for(let i=1; i<=18; i++) {
+            if(!settings.keyBinds[i]) {
+                const arr = [];
+                for(let j=0; j<i; j++) arr.push(['','']);
+                settings.keyBinds[i] = arr;
+            }
+        }
+
+        let currentK = 4;
+
+        function renderKList() {
+            const list = document.getElementById('k-list');
+            list.innerHTML = '';
+            for(let i=1; i<=18; i++) {
+                const btn = document.createElement('button');
+                btn.className = `k-btn ${i === currentK ? 'active' : ''}`;
+                btn.innerText = `${i}K`;
+                btn.onclick = () => { currentK = i; renderKList(); renderBinds(); };
+                list.appendChild(btn);
+            }
+        }
+
+        function renderBinds() {
+            const cont = document.getElementById('binds-container');
+            cont.innerHTML = '';
+            const binds = settings.keyBinds[currentK];
+            for(let i=0; i<currentK; i++) {
+                const row = document.createElement('div');
+                row.className = 'lane-row';
+                row.innerHTML = `
+                    <div class="lane-label">K${i+1}</div>
+                    <input type="text" readonly class="bind-input" data-lane="${i}" data-slot="0" value="${binds[i][0] || ''}" placeholder="空 (Empty)">
+                    <input type="text" readonly class="bind-input" data-lane="${i}" data-slot="1" value="${binds[i][1] || ''}" placeholder="空 (Empty)">
+                `;
+                cont.appendChild(row);
+            }
+
+            document.querySelectorAll('.bind-input').forEach(inp => {
+                inp.addEventListener('keydown', (e) => {
+                    e.preventDefault();
+                    const lane = parseInt(inp.getAttribute('data-lane'));
+                    const slot = parseInt(inp.getAttribute('data-slot'));
+                    if (e.code === 'Escape' || e.code === 'Backspace') {
+                        inp.value = '';
+                        settings.keyBinds[currentK][lane][slot] = '';
+                    } else {
+                        inp.value = e.code;
+                        settings.keyBinds[currentK][lane][slot] = e.code;
+                    }
+                });
+                inp.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    const lane = parseInt(inp.getAttribute('data-lane'));
+                    const slot = parseInt(inp.getAttribute('data-slot'));
+                    inp.value = '';
+                    settings.keyBinds[currentK][lane][slot] = '';
+                });
+            });
+        }
+
+        function saveBinds() {
+            localStorage.setItem('webmania_settings', JSON.stringify(settings));
+            window.close();
+        }
+
+        renderKList();
+        renderBinds();
+    </script>
+</body>
+</html>

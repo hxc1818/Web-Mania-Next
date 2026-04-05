@@ -34,6 +34,8 @@ const bgObserver = new IntersectionObserver((entries, obs) => {
 }, { rootMargin: '200px 0px' });
 
 window.addEventListener('DOMContentLoaded', () => {
+    applyTranslations();
+
     if (isSelector) {
         document.querySelector('.mode-switcher').style.display = 'none';
         document.getElementById('settings-btn').style.display = 'none';
@@ -59,56 +61,159 @@ window.addEventListener('DOMContentLoaded', () => {
         if (status) status.innerText = '正在初始化扫描...';
         doScan(false); 
     }
+
+    initSettingsUI();
+    populateAudioDevices();
 });
 
-// 动态渲染所选K数的键位设定 UI
-function renderKeybinds(k) {
-    const grid = document.getElementById('keybind-grid');
-    grid.innerHTML = '';
-    
-    // 取出现有的绑定，保证存在
-    let binds = userSettings.keyBinds[k] || getDefaultBinds(k);
-    userSettings.keyBinds[k] = binds;
+function initSettingsUI() {
+    const bindEl = (id, prop, type = 'value', unit = '', formatter = null) => {
+        const el = document.getElementById(id);
+        if(!el) return;
+        if(type === 'value') {
+            el.value = userSettings[prop];
+            const valEl = document.getElementById(`${id}-val`);
+            if(valEl) valEl.innerText = formatter ? formatter(el.value) : el.value + unit;
+            el.addEventListener('input', (e) => {
+                let v = e.target.value;
+                if(el.type === 'range' && el.step && el.step.includes('.')) v = parseFloat(v);
+                else if(el.type === 'range') v = parseInt(v);
+                userSettings[prop] = v;
+                if(valEl) valEl.innerText = formatter ? formatter(v) : v + unit;
+                saveSettings();
+                
+                if (prop === 'renderer' || prop === 'fpsLimit') saveSysConfig();
+                if (prop === 'language') applyTranslations();
+            });
+        }
+    };
 
-    for (let i = 0; i < k; i++) {
-        const laneDiv = document.createElement('div');
-        laneDiv.style.display = 'flex';
-        laneDiv.style.gap = '5px';
-        laneDiv.style.alignItems = 'center';
+    bindEl('st-language', 'language');
+    bindEl('st-bgBlur', 'bgBlur', 'value', 'px');
+    bindEl('st-bgDim', 'bgDim', 'value', '%');
+    bindEl('st-scrollSpeed', 'scrollSpeed');
+    bindEl('st-trackScale', 'trackScale', 'value', 'x', v => parseFloat(v).toFixed(1) + 'x');
+    bindEl('st-masterVol', 'masterVol', 'value', '%');
+    bindEl('st-bgVol', 'bgVol', 'value', '%');
+    bindEl('st-sfxVol', 'sfxVol', 'value', '%');
+    bindEl('st-musicVol', 'musicVol', 'value', '%');
+    bindEl('st-offset', 'offset', 'value', 'ms');
+    bindEl('st-uiScale', 'uiScale', 'value', 'x', v => parseFloat(v).toFixed(1) + 'x');
+    bindEl('st-renderer', 'renderer');
+    bindEl('st-fpsLimit', 'fpsLimit');
+    bindEl('st-threadMode', 'threadMode');
+    bindEl('st-audioDevice', 'audioDevice');
 
-        laneDiv.innerHTML = `
-            <span style="color:#aaa;font-size:12px;width:45px;">轨道 ${i + 1}</span>
-            <input type="text" id="bind-${k}-${i}-0" class="setting-input keybind-input" readonly placeholder="空" value="${binds[i][0] || ''}" style="cursor: pointer; text-align: center; padding: 10px 5px;">
-            <input type="text" id="bind-${k}-${i}-1" class="setting-input keybind-input" readonly placeholder="空" value="${binds[i][1] || ''}" style="cursor: pointer; text-align: center; padding: 10px 5px;">
-        `;
-        grid.appendChild(laneDiv);
-    }
-
-    // 给动态生成的输入框挂上事件监听，实时存入 userSettings 内存中
-    grid.querySelectorAll('.keybind-input').forEach(inp => {
-        inp.addEventListener('keydown', (e) => {
-            e.preventDefault();
-            const parts = inp.id.split('-');
-            const lane = parseInt(parts[2]);
-            const idx = parseInt(parts[3]);
-            
-            if (e.code === 'Escape' || e.code === 'Backspace') {
-                inp.value = '';
-                userSettings.keyBinds[k][lane][idx] = '';
-            } else {
-                inp.value = e.code;
-                userSettings.keyBinds[k][lane][idx] = e.code;
-            }
-        });
-        inp.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            const parts = inp.id.split('-');
-            const lane = parseInt(parts[2]);
-            const idx = parseInt(parts[3]);
-            inp.value = '';
-            userSettings.keyBinds[k][lane][idx] = '';
-        });
+    document.getElementById('st-folder').value = localStorage.getItem('wm_folderPath') || '';
+    document.getElementById('st-folder').addEventListener('change', (e) => {
+        localStorage.setItem('wm_folderPath', e.target.value);
     });
+
+    document.getElementById('st-multiId').value = localStorage.getItem('wm_username') || '';
+    userSettings.multiId = localStorage.getItem('wm_username') || '';
+    document.getElementById('st-multiId').addEventListener('input', (e) => {
+        userSettings.multiId = e.target.value;
+        saveSettings();
+    });
+
+    const initSwitch = (id, prop) => {
+        const el = document.getElementById(id);
+        if(!el) return;
+        if(userSettings[prop]) el.classList.add('on');
+        else el.classList.remove('on');
+    };
+    initSwitch('st-touchClick', 'touchClick');
+    initSwitch('st-hitErrorMeter', 'hitErrorMeter');
+    initSwitch('st-noStoryboard', 'noStoryboard');
+    initSwitch('st-autoOffset', 'autoOffset');
+    initSwitch('st-autoKiosk', 'autoKiosk');
+    initSwitch('st-desync', 'desync');
+    initSwitch('st-showFps', 'showFps');
+    initSwitch('st-hwAccel', 'hwAccel');
+
+    const kSel = document.getElementById('st-skin-keys');
+    kSel.value = '4';
+    renderSkinColors(4);
+    kSel.addEventListener('change', (e) => {
+        renderSkinColors(parseInt(e.target.value));
+    });
+
+    const errStr = localStorage.getItem('webmania_last_error');
+    if (errStr && parseInt(errStr) !== 0) {
+        const btn = document.getElementById('btn-use-rec');
+        btn.style.display = 'block';
+        btn.innerText = (userSettings.language === 'en' ? 'Use Rec: ' : '使用推荐延迟: ') + parseInt(errStr) + 'ms';
+    }
+}
+
+function toggleSwitch(id) {
+    const el = document.getElementById(id);
+    const isOn = el.classList.toggle('on');
+    const propMap = {
+        'st-touchClick': 'touchClick', 'st-hitErrorMeter': 'hitErrorMeter',
+        'st-noStoryboard': 'noStoryboard', 'st-autoOffset': 'autoOffset',
+        'st-autoKiosk': 'autoKiosk', 'st-desync': 'desync',
+        'st-showFps': 'showFps', 'st-hwAccel': 'hwAccel'
+    };
+    if (propMap[id]) {
+        userSettings[propMap[id]] = isOn;
+        saveSettings();
+    }
+}
+
+function renderSkinColors(k) {
+    const cont = document.getElementById('st-skin-colors');
+    cont.innerHTML = '';
+    const colors = userSettings.laneColors[k];
+    for(let i = 0; i < k; i++) {
+        const div = document.createElement('div');
+        div.style.display = 'flex'; div.style.flexDirection = 'column';
+        div.innerHTML = `<label style="font-size:12px; color:#aaa; margin-bottom:5px;">K${i+1}</label>
+                         <input type="color" class="color-picker" value="${colors[i]}">`;
+        const cp = div.querySelector('.color-picker');
+        cp.addEventListener('input', (e) => {
+            userSettings.laneColors[k][i] = e.target.value;
+            saveSettings();
+        });
+        cont.appendChild(div);
+    }
+}
+
+document.getElementById('settings-btn').onclick = () => {
+    document.getElementById('settings-sidebar').classList.add('show');
+    document.getElementById('sidebar-close-zone').classList.add('show');
+};
+
+function closeSettings() {
+    document.getElementById('settings-sidebar').classList.remove('show');
+    document.getElementById('sidebar-close-zone').classList.remove('show');
+}
+
+async function populateAudioDevices() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = devices.filter(d => d.kind === 'audiooutput');
+        const sel = document.getElementById('st-audioDevice');
+        sel.innerHTML = '<option value="default">Default / 默认</option>' + outputs.map(d => `<option value="${d.deviceId}">${d.label || 'Unknown Device'}</option>`).join('');
+        sel.value = userSettings.audioDevice || 'default';
+    } catch(e) {}
+}
+
+async function openSongsFolder() {
+    const p = localStorage.getItem('wm_folderPath');
+    if(p) fetch(`${LOCAL_API_URL}/open_folder?path=${encodeURIComponent(p)}`);
+}
+
+async function browseFolder() {
+    try {
+        const res = await fetch(`${LOCAL_API_URL}/select_folder`);
+        const data = await res.json();
+        if (data.path) {
+            document.getElementById('st-folder').value = data.path;
+            localStorage.setItem('wm_folderPath', data.path);
+            doScan(false);
+        }
+    } catch (err) {}
 }
 
 document.getElementById('select-folder-btn').onclick = async () => {
@@ -138,116 +243,31 @@ document.getElementById('select-folder-btn').onclick = async () => {
     }
 };
 
-document.getElementById('set-folder-btn').onclick = async () => {
-    try {
-        const res = await fetch(`${LOCAL_API_URL}/select_folder`);
-        const data = await res.json();
-        if (data.path) document.getElementById('set-folder').value = data.path;
-    } catch (err) {
-        const manual = prompt('无法打开文件夹对话框。请输入完整的绝对路径：');
-        if (manual) document.getElementById('set-folder').value = manual;
-    }
-};
-
-function applySettingsToInputs() {
-    document.getElementById('set-offset').value = userSettings.offset;
-    document.getElementById('set-speed').value = userSettings.scrollSpeed;
-    document.getElementById('set-scale').value = userSettings.trackScale;
-    document.getElementById('set-blur').value = userSettings.bgBlur;
-    document.getElementById('set-bg-dim').value = userSettings.bgDim;
-    document.getElementById('lane-color-1').value = userSettings.laneColors[0] || '#ffffff';
-    document.getElementById('lane-color-2').value = userSettings.laneColors[1] || '#34d399';
-    document.getElementById('lane-color-3').value = userSettings.laneColors[2] || '#fbbf24';
-    document.getElementById('lane-color-4').value = userSettings.laneColors[3] || '#ffffff';
-
-    document.getElementById('set-folder').value = localStorage.getItem('wm_folderPath') || '';
-    document.getElementById('set-username').value = localStorage.getItem('wm_username') || '';
-
-    // 初始化键位绑定菜单，默认选中 4K
-    const kSelect = document.getElementById('keybind-k-select');
-    if (kSelect) {
-        kSelect.value = "4";
-        renderKeybinds(4);
-        kSelect.onchange = (e) => {
-            renderKeybinds(parseInt(e.target.value));
-        };
-    }
-
-    const lastErrorStr = localStorage.getItem('webmania_last_error');
-    const applyBtn = document.getElementById('apply-offset-btn');
-    
-    if (lastErrorStr && parseInt(lastErrorStr) !== 0) {
-        const errVal = parseInt(lastErrorStr);
-        applyBtn.style.display = 'block';
-        applyBtn.innerText = `应用: ${errVal > 0 ? '+'+errVal : errVal}ms`;
-        applyBtn.onclick = () => {
-            const currentOffset = parseInt(document.getElementById('set-offset').value) || 0;
-            document.getElementById('set-offset').value = currentOffset + errVal;
-            localStorage.setItem('webmania_last_error', '0'); 
-            applyBtn.style.display = 'none';
-        };
-    } else {
-        applyBtn.style.display = 'none';
+function applyRecommendedOffset() {
+    const errStr = localStorage.getItem('webmania_last_error');
+    if (errStr && parseInt(errStr) !== 0) {
+        userSettings.offset += parseInt(errStr);
+        localStorage.setItem('webmania_last_error', '0');
+        document.getElementById('st-offset').value = userSettings.offset;
+        document.getElementById('st-offset-val').innerText = userSettings.offset + 'ms';
+        saveSettings();
+        document.getElementById('btn-use-rec').style.display = 'none';
     }
 }
 
-document.getElementById('settings-btn').onclick = () => { 
-    document.getElementById('settings-modal').classList.add('show'); 
-    applySettingsToInputs(); 
-};
+function openKeybinds() {
+    window.open('keybinds.html', 'Web Mania Next Keybinds', 'width=800,height=600,autoHideMenuBar=true');
+}
 
-document.getElementById('save-settings-btn').onclick = () => {
-    // 键位设置(keyBinds)已经在 renderKeybinds 的 onChange 事件中实时更新到了 userSettings 里，只需持久化
-    userSettings.offset = parseInt(document.getElementById('set-offset').value) || 0;
-    userSettings.scrollSpeed = parseInt(document.getElementById('set-speed').value) || 1000;
-    userSettings.trackScale = parseFloat(document.getElementById('set-scale').value) || 1.0;
-    userSettings.bgBlur = parseInt(document.getElementById('set-blur').value) || 0;
-    userSettings.bgDim = parseInt(document.getElementById('set-bg-dim').value) || 80;
-    userSettings.laneColors = [
-        document.getElementById('lane-color-1').value,
-        document.getElementById('lane-color-2').value,
-        document.getElementById('lane-color-3').value,
-        document.getElementById('lane-color-4').value
-    ];
-
-    localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
-
-    const newUsername = document.getElementById('set-username').value.trim();
-    if (newUsername) localStorage.setItem('wm_username', newUsername);
-
-    const newFolder = document.getElementById('set-folder').value.trim();
-    const oldFolder = localStorage.getItem('wm_folderPath');
-    if (newFolder && newFolder !== oldFolder) {
-        localStorage.setItem('wm_folderPath', newFolder);
-        document.getElementById('folder-input').value = newFolder;
-        showScreen('setup-screen');
-        doScan(false); 
+window.addEventListener('storage', (e) => {
+    if(e.key === 'webmania_settings') {
+        userSettings = JSON.parse(e.newValue);
     }
-    document.getElementById('settings-modal').classList.remove('show');
-};
+});
 
-document.getElementById('settings-force-scan-btn').onclick = async () => {
-    const sts = document.getElementById('settings-scan-status');
-    const btn = document.getElementById('settings-force-scan-btn');
-    sts.style.color = '#60a5fa';
-    sts.innerText = '深度扫描中... 请稍候，这可能需要一些时间。';
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.cursor = 'not-allowed';
-    
-    await doScan(true);
-    
-    sts.style.color = '#34d399';
-    sts.innerText = '扫描完成！';
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    btn.style.cursor = 'pointer';
-    
-    setTimeout(() => sts.innerText = '', 3000);
-};
-
+// Original Core Logic below
 async function doScan(forceRescan = false) {
-    const path = document.getElementById('folder-input').value;
+    const path = document.getElementById('folder-input').value || localStorage.getItem('wm_folderPath');
     const status = document.getElementById('scan-status');
     if (!path.trim()) { if (status) status.innerText = '错误：路径为空'; return; }
     if (status) status.innerText = forceRescan ? '深度扫描中...' : '正在读取缓存...';
@@ -393,7 +413,6 @@ async function loadSayobotRandom() {
             data.data.forEach(map => {
                 const el = document.createElement('div');
                 el.className = 'map-diff-item';
-                // 显示包含哪些模式或K数
                 const csDisplay = map.selected_diff ? `[${map.selected_diff.CS || map.selected_diff.cs || '?'}K]` : '';
                 el.innerHTML = `
                     <div style="display:flex; flex-direction:column; gap:2px;">
@@ -640,13 +659,12 @@ function renderMapList() {
         group.forEach(bm => {
             const stars = bm.stars || getFakeStars(bm.version);
             const starColor = getStarColor(stars);
-            const cs = bm.cs || 4; // 动态提取 K数
+            const cs = bm.cs || 4;
             const diffItem = document.createElement('div');
             diffItem.className = 'map-diff-item';
             diffItem.setAttribute('data-id', bm.id);
             const grade = history[bm.id] || '';
             
-            // 列表中增加 [X K] 提示
             diffItem.innerHTML = `
                 <div style="display:flex; align-items:center; gap:12px;">
                     <div style="width:12px; height:12px; border-radius:3px; background:${starColor}; box-shadow: 0 0 10px ${starColor};"></div>
@@ -761,7 +779,6 @@ async function selectMap(bm, element) {
     const csDisplay = bm.cs || 4;
     document.getElementById('info-title').innerText = bm.title;
     document.getElementById('info-artist').innerText = bm.artist;
-    // 增加 [4K] 前缀
     document.getElementById('info-version').innerText = `[${csDisplay}K] ${bm.version}`;
     const stars = bm.stars || getFakeStars(bm.version);
     document.getElementById('info-stars').innerText = `${stars.toFixed(2)} ★`;
@@ -793,12 +810,15 @@ async function selectMap(bm, element) {
                 previewAudio.pause();
                 previewAudio.src = `${LOCAL_API_URL}/file?path=${encodeURIComponent(bm.audioPath)}`;
                 previewAudio.loop = true; 
+                if (userSettings.audioDevice && userSettings.audioDevice !== 'default') {
+                    if (previewAudio.setSinkId) previewAudio.setSinkId(userSettings.audioDevice).catch(()=>{});
+                }
                 previewAudio.onloadedmetadata = () => {
                     if (parsed.previewTime > 0) previewAudio.currentTime = parsed.previewTime / 1000;
                     else if (previewAudio.duration) previewAudio.currentTime = previewAudio.duration / 3;
                 };
                 previewAudio.oncanplay = () => {
-                    previewAudio.volume = 0.5;
+                    previewAudio.volume = (userSettings.masterVol / 100) * (userSettings.musicVol / 100) * 0.5;
                     const playPromise = previewAudio.play();
                     if (playPromise !== undefined) { playPromise.catch(e => {}); }
                     previewAudio.oncanplay = null;
@@ -827,7 +847,6 @@ function parseOsuFileLite(osuText) {
         else if (section === '[HitObjects]') {
             const parts = line.split(',');
             if (parts.length >= 5) {
-                // 动态计算该按键处于多少轨道
                 const column = Math.floor(parseInt(parts[0]) * cs / 512);
                 if (column >= 0 && column < cs) { if ((parseInt(parts[3]) & 128) !== 0) holdCount++; else noteCount++; }
             }

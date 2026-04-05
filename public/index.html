@@ -16,13 +16,13 @@
 
     <div id="setup-screen" class="screen active">
         <div class="setup-box">
-            <div class="setup-title">初始化</div>
-            <div class="setup-desc">请选择您的 <b>osu! Songs</b> 文件夹</div>
+            <div class="setup-title" data-i18n="init_title">初始化</div>
+            <div class="setup-desc" data-i18n="init_desc">请选择您的 <b>osu! Songs</b> 文件夹</div>
             <div id="path-display" style="margin-bottom: 20px; color: #60a5fa; font-size: 13px; word-break: break-all;">[ 路径为空 ]</div>
-            <button id="select-folder-btn" class="setup-btn" style="background: rgba(255,255,255,0.1); color:#ccc; margin-bottom: 15px;">浏览...</button>
+            <button id="select-folder-btn" class="setup-btn" style="background: rgba(255,255,255,0.1); color:#ccc; margin-bottom: 15px;" data-i18n="browse">浏览...</button>
             <br>
             <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button id="scan-btn" class="setup-btn" style="width: 100%;">开始游戏</button>
+                <button id="scan-btn" class="setup-btn" style="width: 100%;" data-i18n="start_game">开始游戏</button>
             </div>
             <div id="scan-status" style="margin-top: 20px; color: #a1a1aa; font-size: 13px;"></div>
             <input type="hidden" id="folder-input">
@@ -31,19 +31,19 @@
 
     <div id="select-screen" class="screen">
         <div id="select-bg" class="select-bg"></div>
-        <div id="settings-btn" class="top-btn">设置</div>
+        <div id="settings-btn" class="top-btn" data-i18n="settings">设置</div>
         
         <div class="search-bar-container" id="search-bar-container">
-            <input type="text" id="search-input" class="search-input" placeholder="搜索标题、艺术家、难度..." oninput="renderMapList()">
+            <input type="text" id="search-input" class="search-input" placeholder="搜索标题、艺术家、难度..." data-i18n="search_placeholder" oninput="renderMapList()">
             <select id="sort-field" class="search-select" onchange="renderMapList()">
-                <option value="title">标题 (A-Z)</option>
-                <option value="artist">艺术家 (A-Z)</option>
-                <option value="stars">难度</option>
-                <option value="bpm">BPM</option>
+                <option value="title" data-i18n="sort_title">标题 (A-Z)</option>
+                <option value="artist" data-i18n="sort_artist">艺术家 (A-Z)</option>
+                <option value="stars" data-i18n="sort_diff">难度</option>
+                <option value="bpm" data-i18n="sort_bpm">BPM</option>
             </select>
             <select id="sort-dir" class="search-select" onchange="renderMapList()">
-                <option value="asc">升序</option>
-                <option value="desc">降序</option>
+                <option value="asc" data-i18n="sort_asc">升序</option>
+                <option value="desc" data-i18n="sort_desc">降序</option>
             </select>
         </div>
 
@@ -52,110 +52,244 @@
                 <div class="stat-item">BPM <span id="stat-bpm">0</span></div>
                 <div class="stat-item">OD <span id="stat-od">0</span></div>
                 <div class="stat-item">HP <span id="stat-hp">0</span></div>
-                <div class="stat-item">按键 <span id="stat-notes">0</span></div>
-                <div class="stat-item">长按 <span id="stat-holds">0</span></div>
-                <div class="stat-item">模式 <span id="stat-keys" style="color:#fbbf24;">4K</span></div>
+                <div class="stat-item">Notes <span id="stat-notes">0</span></div>
+                <div class="stat-item">Holds <span id="stat-holds">0</span></div>
+                <div class="stat-item">Keys <span id="stat-keys" style="color:#fbbf24;">4K</span></div>
             </div>
 
             <div class="info-container">
-                <div style="color: #60a5fa; font-size: 14px; font-weight: 600; margin-bottom: 5px;" id="info-header">选择一首歌曲开始</div>
+                <div style="color: #60a5fa; font-size: 14px; font-weight: 600; margin-bottom: 5px;" id="info-header" data-i18n="select_song_start">选择一首歌曲开始</div>
                 <div id="info-title" class="info-title">等待中...</div>
                 <div id="info-artist" class="info-artist">...</div>
                 <div id="info-version" style="font-size: 20px; color: #fff; font-weight: 700; margin-bottom: 10px;"></div>
                 <div id="info-stars" class="info-stars"></div>
-                <div class="loading-indicator">正在加载谱面...</div>
+                <div class="loading-indicator" data-i18n="loading_map">正在加载谱面...</div>
 
                 <div style="display: flex; gap: 20px; width: 100%; max-width: 650px; margin-top: 15px;">
                     <div id="local-leaderboard-panel" style="flex: 1; background: transparent; border: none; padding: 0; display: none; flex-direction: column; min-height: 0;">
-                        <div class="leaderboard-title">本地分数</div>
+                        <div class="leaderboard-title" data-i18n="local_scores">本地分数</div>
                         <div id="local-leaderboard-list" style="flex: 1; overflow-y: auto; font-size: 14px; padding-right: 15px; max-height: 180px;">等待中...</div>
                     </div>
                     <div id="leaderboard-panel" style="flex: 1; background: transparent; border: none; padding: 0; display: none; flex-direction: column; min-height: 0;">
-                        <div class="leaderboard-title">全球排行榜</div>
+                        <div class="leaderboard-title" data-i18n="global_scores">全球排行榜</div>
                         <div id="leaderboard-list" style="flex: 1; overflow-y: auto; font-size: 14px; padding-right: 15px; max-height: 180px;">等待中...</div>
                     </div>
                 </div>
             </div>
             
-            <button id="btn-random-map" class="setup-btn" style="position: absolute; bottom: 30px; left: 80px; z-index: 100; font-size: 14px; padding: 10px 20px; background: rgba(59,130,246,0.8); backdrop-filter: blur(5px);">[ 随机选歌 ]</button>
+            <button id="btn-random-map" class="setup-btn" style="position: absolute; bottom: 30px; left: 80px; z-index: 100; font-size: 14px; padding: 10px 20px; background: rgba(59,130,246,0.8); backdrop-filter: blur(5px);" data-i18n="random_map">[ 随机选歌 ]</button>
         </div>
 
         <div class="select-right" id="map-list"></div>
     </div>
 
-    <div id="settings-modal">
+    <!-- 侧滑设置栏 -->
+    <div id="sidebar-close-zone" onclick="closeSettings()"></div>
+    <div id="settings-sidebar">
+        <div class="settings-header" data-i18n="settings">设置</div>
         <div class="settings-content">
-            <h2 style="color: #fff; margin-top: 0; margin-bottom: 25px; border-bottom: 2px solid rgba(255,255,255,0.1); padding-bottom: 10px;">设置</h2>
-            
-            <div class="setting-row">
-                <label class="setting-label">osu! Songs 文件夹路径</label>
-                <div style="display: flex; gap: 10px;">
-                    <input type="text" id="set-folder" class="setting-input" style="flex: 1;">
-                    <button id="set-folder-btn" class="setup-btn" style="padding: 10px; font-size: 13px; background: #4b5563;">浏览</button>
+            <!-- 常规 -->
+            <section class="set-sec">
+                <h2 data-i18n="cat_general">常规</h2>
+                <button class="osu-btn" style="width:100%; margin-bottom: 15px;" onclick="showScreen('setup-screen'); closeSettings();" data-i18n="open_wizard">打开设置向导</button>
+                <div class="set-row">
+                    <label data-i18n="language">语言</label>
+                    <select id="st-language" class="osu-select">
+                        <option value="zh">简体中文</option>
+                        <option value="en">English</option>
+                    </select>
                 </div>
-            </div>
-
-            <div class="setting-row">
-                <label class="setting-label">玩家昵称</label>
-                <input type="text" id="set-username" class="setting-input" placeholder="例如: Player#123">
-            </div>
-
-            <div class="setting-row" style="margin-top: 20px;">
-                <label class="setting-label">音频偏移 (ms)</label>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <input type="number" id="set-offset" class="setting-input" style="flex: 1;">
-                    <button id="apply-offset-btn" class="setup-btn" style="padding: 10px; font-size: 13px; background: #10b981; display: none;">应用修复</button>
+                <button class="osu-btn" style="width:100%; margin-bottom: 15px;" onclick="openSongsFolder()" data-i18n="open_songs">打开songs文件夹</button>
+                <div class="set-row">
+                    <label data-i18n="change_songs">更改songs文件夹位置</label>
+                    <div style="display:flex;gap:10px;">
+                        <input type="text" id="st-folder" class="osu-input" style="flex:1;">
+                        <button class="osu-btn" style="margin-top:0;" onclick="browseFolder()" data-i18n="browse">浏览</button>
+                    </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="setting-row"><label class="setting-label">下落速度</label><input type="number" id="set-speed" class="setting-input"></div>
-            <div class="setting-row"><label class="setting-label">轨道缩放 (x)</label><input type="number" step="0.1" id="set-scale" class="setting-input"></div>
-            <div class="setting-row"><label class="setting-label">背景模糊 (px)</label><input type="number" id="set-blur" class="setting-input"></div>
-            <div class="setting-row"><label class="setting-label">背景暗化 (0-100)</label><input type="number" id="set-bg-dim" class="setting-input" min="0" max="100"></div>
-            
-            <div class="setting-row" style="margin-top: 25px;">
-                <label class="setting-label">轨道颜色 (按顺序: 外侧, 内侧, 中心特键, 其他辅助)</label>
-                <div class="color-picker-row">
-                    <input type="color" id="lane-color-1" class="color-picker" value="#ffffff">
-                    <input type="color" id="lane-color-2" class="color-picker" value="#34d399">
-                    <input type="color" id="lane-color-3" class="color-picker" value="#fbbf24">
-                    <input type="color" id="lane-color-4" class="color-picker" value="#ffffff">
+            <!-- 皮肤 -->
+            <section class="set-sec">
+                <h2 data-i18n="cat_skin">皮肤</h2>
+                <div class="set-row">
+                    <label data-i18n="track_keys">轨道Key数</label>
+                    <select id="st-skin-keys" class="osu-select">
+                        <option value="1">1K</option><option value="2">2K</option><option value="3">3K</option><option value="4">4K</option>
+                        <option value="5">5K</option><option value="6">6K</option><option value="7">7K</option><option value="8">8K</option>
+                        <option value="9">9K</option><option value="10">10K</option><option value="11">11K</option><option value="12">12K</option>
+                        <option value="13">13K</option><option value="14">14K</option><option value="15">15K</option><option value="16">16K</option>
+                        <option value="17">17K</option><option value="18">18K</option>
+                    </select>
                 </div>
-            </div>
+                <div id="st-skin-colors" style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <!-- 动态生成 -->
+                </div>
+            </section>
 
-            <div class="setting-row" style="margin-top: 25px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
-                <label class="setting-label" style="color: #60a5fa; font-size: 15px;">全键位定制 (1K - 18K) - 每条轨道最多绑定两个键</label>
-                <select id="keybind-k-select" class="setting-input" style="width: 150px; margin-bottom: 15px; cursor: pointer;">
-                    <option value="1">1K 模式</option>
-                    <option value="2">2K 模式</option>
-                    <option value="3">3K 模式</option>
-                    <option value="4" selected>4K 模式</option>
-                    <option value="5">5K 模式</option>
-                    <option value="6">6K 模式</option>
-                    <option value="7">7K 模式</option>
-                    <option value="8">8K 模式</option>
-                    <option value="9">9K 模式</option>
-                    <option value="10">10K 模式</option>
-                    <option value="11">11K 模式</option>
-                    <option value="12">12K 模式</option>
-                    <option value="13">13K 模式</option>
-                    <option value="14">14K 模式</option>
-                    <option value="15">15K 模式</option>
-                    <option value="16">16K 模式</option>
-                    <option value="17">17K 模式</option>
-                    <option value="18">18K 模式</option>
-                </select>
-                <!-- 动态渲染的键位设置表格 -->
-                <div id="keybind-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;"></div>
-            </div>
+            <!-- 输入 -->
+            <section class="set-sec">
+                <h2 data-i18n="cat_input">输入</h2>
+                <button class="osu-btn" style="width:100%; margin-bottom: 15px;" onclick="openKeybinds()" data-i18n="config_keys">配置</button>
+                <div class="set-row-inline" onclick="toggleSwitch('st-touchClick')">
+                    <label data-i18n="touch_click">启用触屏点击</label>
+                    <div class="osu-switch-wrap"><div id="st-touchClick" class="osu-switch"></div></div>
+                </div>
+            </section>
 
-            <div class="setting-row" style="margin-top: 25px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
-                <label class="setting-label">数据管理</label>
-                <button id="settings-force-scan-btn" class="setup-btn" style="width: 100%; background: #f59e0b; padding: 10px; font-size: 14px;">重新扫描谱面</button>
-                <div id="settings-scan-status" style="margin-top: 10px; font-size: 13px; text-align: center; font-weight: 600;"></div>
-            </div>
+            <!-- 界面 -->
+            <section class="set-sec">
+                <h2 data-i18n="cat_ui">界面</h2>
+                <div class="set-row">
+                    <label data-i18n="bg_blur">游玩时背景模糊</label>
+                    <div class="range-container">
+                        <input type="range" id="st-bgBlur" class="osu-range" min="0" max="50">
+                        <span id="st-bgBlur-val" class="range-val">8px</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="bg_dim">游玩时背景暗化</label>
+                    <div class="range-container">
+                        <input type="range" id="st-bgDim" class="osu-range" min="0" max="100">
+                        <span id="st-bgDim-val" class="range-val">80%</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="speed">下落速度</label>
+                    <div class="range-container">
+                        <input type="range" id="st-scrollSpeed" class="osu-range" min="100" max="4000" step="10">
+                        <span id="st-scrollSpeed-val" class="range-val">1000</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="scale">轨道缩放</label>
+                    <div class="range-container">
+                        <input type="range" id="st-trackScale" class="osu-range" min="0.1" max="4" step="0.1">
+                        <span id="st-trackScale-val" class="range-val">1.0x</span>
+                    </div>
+                </div>
+                <div class="set-row-inline" onclick="toggleSwitch('st-hitErrorMeter')">
+                    <label data-i18n="hit_error">开启hiterrormeter</label>
+                    <div class="osu-switch-wrap"><div id="st-hitErrorMeter" class="osu-switch"></div></div>
+                </div>
+                <div class="set-row-inline" onclick="toggleSwitch('st-noStoryboard')">
+                    <label data-i18n="no_sb">不播放故事板的视频</label>
+                    <div class="osu-switch-wrap"><div id="st-noStoryboard" class="osu-switch"></div></div>
+                </div>
+            </section>
 
-            <button id="save-settings-btn" class="settings-close-btn">保存并关闭</button>
+            <!-- 音频 -->
+            <section class="set-sec">
+                <h2 data-i18n="cat_audio">音频</h2>
+                <div class="set-row">
+                    <label data-i18n="device">播放设备</label>
+                    <select id="st-audioDevice" class="osu-select"></select>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="master_vol">主音量</label>
+                    <div class="range-container">
+                        <input type="range" id="st-masterVol" class="osu-range" min="0" max="100">
+                        <span id="st-masterVol-val" class="range-val">100%</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="bg_vol">主音量(当窗口失焦时)</label>
+                    <div class="range-container">
+                        <input type="range" id="st-bgVol" class="osu-range" min="0" max="100">
+                        <span id="st-bgVol-val" class="range-val">50%</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="sfx_vol">音效</label>
+                    <div class="range-container">
+                        <input type="range" id="st-sfxVol" class="osu-range" min="0" max="100">
+                        <span id="st-sfxVol-val" class="range-val">100%</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="music_vol">音乐</label>
+                    <div class="range-container">
+                        <input type="range" id="st-musicVol" class="osu-range" min="0" max="100">
+                        <span id="st-musicVol-val" class="range-val">100%</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="audio_offset">音频延迟</label>
+                    <div class="range-container">
+                        <input type="range" id="st-offset" class="osu-range" min="-1000" max="1000">
+                        <span id="st-offset-val" class="range-val">0ms</span>
+                    </div>
+                </div>
+                <button class="osu-btn" id="btn-use-rec" style="width:100%; margin-bottom: 15px; display:none;" onclick="applyRecommendedOffset()" data-i18n="use_rec">使用推荐延迟</button>
+                <div class="set-row-inline" onclick="toggleSwitch('st-autoOffset')">
+                    <label data-i18n="auto_offset">游玩结束后自动校准延迟</label>
+                    <div class="osu-switch-wrap"><div id="st-autoOffset" class="osu-switch"></div></div>
+                </div>
+            </section>
+
+            <!-- 图像 -->
+            <section class="set-sec">
+                <h2 data-i18n="cat_gfx">图像</h2>
+                <div class="set-row-inline" onclick="toggleSwitch('st-autoKiosk')">
+                    <label data-i18n="auto_kiosk">游玩时自动进入Kiosk模式</label>
+                    <div class="osu-switch-wrap"><div id="st-autoKiosk" class="osu-switch"></div></div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="ui_scale">UI缩放</label>
+                    <div class="range-container">
+                        <input type="range" id="st-uiScale" class="osu-range" min="0.1" max="4" step="0.1">
+                        <span id="st-uiScale-val" class="range-val">1.0x</span>
+                    </div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="renderer">渲染器</label>
+                    <select id="st-renderer" class="osu-select">
+                        <option value="default" data-i18n="rend_default">默认</option>
+                        <option value="d3d12">DirectX 12</option>
+                        <option value="d3d11">DirectX 11</option>
+                        <option value="graphite">Graphite (Skia)</option>
+                    </select>
+                </div>
+                <div class="set-row-inline" onclick="toggleSwitch('st-desync')">
+                    <label data-i18n="desync">启用desynchronized模式</label>
+                    <div class="osu-switch-wrap"><div id="st-desync" class="osu-switch"></div></div>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="fps_limit">帧数限制</label>
+                    <select id="st-fpsLimit" class="osu-select">
+                        <option value="vsync">VSync</option>
+                        <option value="2x">2x refresh rate</option>
+                        <option value="4x">4x refresh rate</option>
+                        <option value="8x">8x refresh rate</option>
+                        <option value="unlimited" data-i18n="unlimited">无限制</option>
+                    </select>
+                </div>
+                <div class="set-row">
+                    <label data-i18n="thread_mode">线程模式</label>
+                    <select id="st-threadMode" class="osu-select">
+                        <option value="single" data-i18n="single_thread">单线程</option>
+                        <option value="multi" data-i18n="multi_thread">多线程</option>
+                    </select>
+                </div>
+                <div class="set-row-inline" onclick="toggleSwitch('st-showFps')">
+                    <label data-i18n="show_fps">显示帧率</label>
+                    <div class="osu-switch-wrap"><div id="st-showFps" class="osu-switch"></div></div>
+                </div>
+                <div class="set-row-inline" onclick="toggleSwitch('st-hwAccel')">
+                    <label data-i18n="hw_accel">播放背景视频时使用硬件加速</label>
+                    <div class="osu-switch-wrap"><div id="st-hwAccel" class="osu-switch"></div></div>
+                </div>
+            </section>
+
+            <!-- 在线 -->
+            <section class="set-sec" style="margin-bottom: 80px;">
+                <h2 data-i18n="cat_online">在线</h2>
+                <div class="set-row">
+                    <label data-i18n="multi_id">多人游戏ID</label>
+                    <input type="text" id="st-multiId" class="osu-input">
+                </div>
+            </section>
+
         </div>
     </div>
 
