@@ -239,7 +239,6 @@
             document.getElementById(id).classList.add('active');
         }
 
-        const JUDGE = { max: 16, p300: 64, p200: 97, p100: 127, p50: 151 }; 
         const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
         const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
         const KEY_MAP = { 'KeyD': 0, 'KeyF': 1, 'KeyJ': 2, 'KeyK': 3, 'Numpad7': 2, 'Numpad8': 3 };
@@ -448,6 +447,16 @@
                 
                 this.isSpectator = isSpectator; 
                 this.isReplay = isReplayMode; 
+
+                // 基于谱面解析出的 OD 来动态生成判定区间 (公式与 osu! 官网一致)
+                this.od = beatmapData.od !== undefined ? beatmapData.od : 5;
+                this.judge = {
+                    max: 16,
+                    p300: Math.max(16, 64 - 3 * this.od),
+                    p200: Math.max(16, 97 - 3 * this.od),
+                    p100: Math.max(16, 127 - 3 * this.od),
+                    p50:  Math.max(16, 151 - 3 * this.od)
+                };
 
                 this.scrollSpeed = userSettings.scrollSpeed;
                 this.laneCount = 4;
@@ -705,15 +714,15 @@
                     const note = this.notes[i];
                     if (note.column !== lane || note.headJudged) continue;
                     const diff = note.time - now;
-                    if (diff > JUDGE.p50) break; 
-                    if (Math.abs(diff) <= JUDGE.p50 && Math.abs(diff) < minDiff) { minDiff = Math.abs(diff); target = note; }
+                    if (diff > this.judge.p50) break; 
+                    if (Math.abs(diff) <= this.judge.p50 && Math.abs(diff) < minDiff) { minDiff = Math.abs(diff); target = note; }
                 }
 
                 if (target) {
                     const diff = now - target.time;
                     const absDiff = Math.abs(diff);
                     let j = 'miss';
-                    if (absDiff <= JUDGE.max) j = 'max'; else if (absDiff <= JUDGE.p300) j = 'p300'; else if (absDiff <= JUDGE.p200) j = 'p200'; else if (absDiff <= JUDGE.p100) j = 'p100'; else if (absDiff <= JUDGE.p50) j = 'p50';
+                    if (absDiff <= this.judge.max) j = 'max'; else if (absDiff <= this.judge.p300) j = 'p300'; else if (absDiff <= this.judge.p200) j = 'p200'; else if (absDiff <= this.judge.p100) j = 'p100'; else if (absDiff <= this.judge.p50) j = 'p50';
                     target.headJudged = true;
                     if (target.type === 'hold' && j !== 'miss') target.isHolding = true;
                     this.addJudge(j, diff, lane, false); 
@@ -741,10 +750,10 @@
                     if (note.column === lane && note.type === 'hold' && note.isHolding && !note.tailJudged) {
                         note.isHolding = false; note.tailJudged = true;
                         const diff = now - note.endTime;
-                        if (diff < -JUDGE.p50) this.addJudge('miss', diff, lane, true);
+                        if (diff < -this.judge.p50) this.addJudge('miss', diff, lane, true);
                         else {
                             const absDiff = Math.abs(diff); let j = 'miss';
-                            if (absDiff <= JUDGE.max) j = 'max'; else if (absDiff <= JUDGE.p300) j = 'p300'; else if (absDiff <= JUDGE.p200) j = 'p200'; else if (absDiff <= JUDGE.p100) j = 'p100'; else if (absDiff <= JUDGE.p50) j = 'p50';
+                            if (absDiff <= this.judge.max) j = 'max'; else if (absDiff <= this.judge.p300) j = 'p300'; else if (absDiff <= this.judge.p200) j = 'p200'; else if (absDiff <= this.judge.p100) j = 'p100'; else if (absDiff <= this.judge.p50) j = 'p50';
                             this.addJudge(j, diff, lane, true); 
                         }
                         break;
@@ -778,7 +787,7 @@
                     }
                 }
 
-                const missThreshold = (this.isSpectator || this.isReplay) ? JUDGE.p50 + 400 : JUDGE.p50;
+                const missThreshold = (this.isSpectator || this.isReplay) ? this.judge.p50 + 400 : this.judge.p50;
 
                 if (!this.isSpectator) {
                     for (let i = 0; i < this.notes.length; i++) {
@@ -860,13 +869,13 @@
                 const meterY = this.hitLineY + 60; const xC = canvas.width / 2; const scale = 1.5; 
                 ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(xC - (150 * scale), meterY - 5, 300 * scale, 10);
                 ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(xC - 1, meterY - 8, 2, 16); 
-                ctx.fillStyle = '#fbbf24'; ctx.fillRect(xC - (JUDGE.p300 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (JUDGE.p300 * scale), meterY - 5, 1, 10);
-                ctx.fillStyle = '#60a5fa'; ctx.fillRect(xC - (JUDGE.p100 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (JUDGE.p100 * scale), meterY - 5, 1, 10);
+                ctx.fillStyle = '#fbbf24'; ctx.fillRect(xC - (this.judge.p300 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p300 * scale), meterY - 5, 1, 10);
+                ctx.fillStyle = '#60a5fa'; ctx.fillRect(xC - (this.judge.p100 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p100 * scale), meterY - 5, 1, 10);
                 for (let i = 0; i < this.state.hitErrors.length; i++) {
                     const err = this.state.hitErrors[i]; const age = now - err.time;
                     if (age > 3000) continue; 
                     let alpha = 1 - (age / 3000); let absErr = Math.abs(err.diff); let color = '#60a5fa';
-                    if (absErr <= JUDGE.max) color = '#ffffff'; else if (absErr <= JUDGE.p300) color = '#fbbf24'; else if (absErr <= JUDGE.p200) color = '#34d399'; else if (absErr <= JUDGE.p100) color = '#60a5fa'; else color = '#a78bfa';
+                    if (absErr <= this.judge.max) color = '#ffffff'; else if (absErr <= this.judge.p300) color = '#fbbf24'; else if (absErr <= this.judge.p200) color = '#34d399'; else if (absErr <= this.judge.p100) color = '#60a5fa'; else color = '#a78bfa';
                     ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillRect(xC + (err.diff * scale) - 2, meterY - 8, 4, 16);
                 }
                 ctx.globalAlpha = 1.0;
@@ -970,7 +979,7 @@
 
         function parseOsuFile(osuText) {
             const lines = osuText.split(/\r?\n/);
-            let section = '', bpm = 0, hp = 0, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
+            let section = '', bpm = 0, hp = 0, od = 5, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
             const notes = [];
             
             for (let line of lines) {
@@ -979,7 +988,10 @@
                 if (!line) continue;
                 
                 if (section === '[General]') { if (line.startsWith('PreviewTime:')) previewTime = parseInt(line.split(':')[1].trim()); } 
-                else if (section === '[Difficulty]') { if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim()); } 
+                else if (section === '[Difficulty]') { 
+                    if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim()); 
+                    if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); // 游戏解析OD
+                } 
                 else if (section === '[Events]') {
                     const parts = line.split(',');
                     if (parts[0] === 'Video' || parts[0] === '1') {
@@ -1006,7 +1018,7 @@
                 }
             }
             if (beatLengths.length > 0) bpm = Math.round(60000 / beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop());
-            return { notes: notes.sort((a,b) => a.time - b.time), bpm, hp, previewTime, noteCount, holdCount, videoPath };
+            return { notes: notes.sort((a,b) => a.time - b.time), bpm, hp, od, previewTime, noteCount, holdCount, videoPath };
         }
 
         function animateValue(obj, start, end, duration, formatStr = false) {

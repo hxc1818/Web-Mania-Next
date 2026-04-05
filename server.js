@@ -27,7 +27,7 @@ const upload = multer({ dest: tempUploadsDir });
 function parseOsuMetadataFromString(content) {
     const lines = content.split(/\r?\n/);
     let section = '';
-    const metadata = { title: 'Unknown', artist: 'Unknown', version: 'Normal', bg: '', stars: 0, audio: '', bpm: 0 };
+    const metadata = { title: 'Unknown', artist: 'Unknown', version: 'Normal', bg: '', stars: 0, audio: '', bpm: 0, od: 5 };
     let mode = 0, circleSize = 0;
     
     let inHitObjects = false;
@@ -51,8 +51,9 @@ function parseOsuMetadataFromString(content) {
             if (line.startsWith('Title:')) metadata.title = line.split(':')[1].trim();
             if (line.startsWith('Artist:')) metadata.artist = line.split(':')[1].trim();
             if (line.startsWith('Version:')) metadata.version = line.split(':')[1].trim();
-        } else if (section === 'Difficulty' && line.startsWith('CircleSize:')) {
-            circleSize = parseFloat(line.split(':')[1]);
+        } else if (section === 'Difficulty') {
+            if (line.startsWith('CircleSize:')) circleSize = parseFloat(line.split(':')[1]);
+            else if (line.startsWith('OverallDifficulty:')) metadata.od = parseFloat(line.split(':')[1]);
         } else if (section === 'Events') {
             const parts = line.split(',');
             if (parts[0] === '0' && line.includes('"')) {
@@ -256,6 +257,7 @@ app.post('/api/scan', (req, res) => {
                             version: meta.version,
                             stars: meta.stars || 0,
                             bpm: meta.bpm || 0,
+                            od: meta.od || 5, // 记录OD
                             audioPath: normalize(audioFile ? path.join(itemPath, audioFile) : null),
                             bgPath: normalize(meta.bg ? path.join(itemPath, meta.bg) : null)
                         });
