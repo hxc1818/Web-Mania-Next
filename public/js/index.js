@@ -12,6 +12,7 @@ let currentLocalScores = [];
 let searchDebounceTimer = null; 
 
 const isSelector = new URLSearchParams(window.location.search).get('selector') === 'true';
+const filterDir = new URLSearchParams(window.location.search).get('filterDir');
 
 const bgObserver = new IntersectionObserver((entries, obs) => {
     entries.forEach(entry => {
@@ -102,6 +103,11 @@ window.addEventListener('DOMContentLoaded', () => {
     if (isSelector) {
         document.querySelector('.mode-switcher').style.display = 'none';
         document.getElementById('settings-btn').style.display = 'none';
+        // 如果是指定过滤目录（比如拖拽上传后），隐藏顶部搜索栏以防止干扰
+        if (filterDir) {
+            const searchBar = document.getElementById('search-bar-container');
+            if (searchBar) searchBar.style.display = 'none';
+        }
     }
 
     sessionStorage.setItem('webmania_multi', 'false');
@@ -374,7 +380,6 @@ async function doScan(forceRescan = false) {
             
             mapGroups = {};
             beatmaps.forEach(bm => {
-                // 关键修复：以物理文件夹路径进行合并分组，避免同名不同谱师被合并
                 const key = bm.dirPath;
                 if (!mapGroups[key]) mapGroups[key] = [];
                 mapGroups[key].push(bm);
@@ -388,7 +393,7 @@ async function doScan(forceRescan = false) {
                 
                 const lastMapStr = sessionStorage.getItem('webmania_current_map');
                 let restored = false;
-                if (lastMapStr && beatmaps.length > 0) {
+                if (lastMapStr && beatmaps.length > 0 && !filterDir) {
                     const lastMap = JSON.parse(lastMapStr);
                     const targetMap = beatmaps.find(b => b.id === lastMap.id);
                     if (targetMap) {
@@ -440,7 +445,10 @@ document.getElementById('scan-btn').onclick = () => doScan(false);
 
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', async (e) => {
+    // 选谱界面只负责本地解析上传，不与多人游戏耦合（如果在单机模式下）
     e.preventDefault();
+    if(isSelector) return; // selector模式下不处理全局拖拽
+
     const files = e.dataTransfer.files;
     if (files.length > 0 && files[0].name.endsWith('.osz')) {
         const folderPath = document.getElementById('folder-input').value || localStorage.getItem('wm_folderPath');
@@ -466,108 +474,6 @@ window.addEventListener('drop', async (e) => {
         }
     }
 });
-
-async function loadSayobotRandom() {
-    const diffList = document.getElementById('sayobot-diff-list');
-    const inner = document.getElementById('sayobot-list-inner');
-    const groupEl = document.getElementById('sayobot-group');
-    
-    document.querySelectorAll('.map-group').forEach(el => {
-        el.classList.remove('expanded');
-        if (el.querySelector('.map-diff-list')) el.querySelector('.map-diff-list').style.gridTemplateRows = '0fr';
-    });
-    
-    if (diffList.style.gridTemplateRows === '1fr') {
-        diffList.style.gridTemplateRows = '0fr';
-        groupEl.classList.remove('expanded');
-        return;
-    }
-    
-    groupEl.classList.add('expanded');
-    inner.innerHTML = '<div style="padding:15px; color:#60a5fa; font-weight: 600;">正在连接到 Sayobot...</div>';
-    diffList.style.gridTemplateRows = '1fr';
-    
-    try {
-        const res = await fetch('/api/sayobot_random');
-        const data = await res.json();
-        if (data.success && data.data) {
-            inner.innerHTML = '';
-            data.data.forEach(map => {
-                const el = document.createElement('div');
-                el.className = 'map-diff-item';
-                const csDisplay = map.selected_diff ? `[${map.selected_diff.CS || map.selected_diff.cs || '?'}K]` : '';
-                el.innerHTML = `
-                    <div style="display:flex; flex-direction:column; gap:2px;">
-                        <div style="font-weight:600; color:#eee;">${map.title}</div>
-                        <div style="font-size:12px; color:#aaa;">${map.artist} // ${csDisplay} 难度数: ${map.bid_data ? map.bid_data.length : '?'}</div>
-                    </div>
-                    <div style="color:#60a5fa; font-size:12px; font-weight:600;">[下载]</div>
-                `;
-                el.onclick = (e) => { e.stopPropagation(); installSayobotMap(map.sid, map.title, el); };
-                inner.appendChild(el);
-            });
-        } else {
-            inner.innerHTML = '<div style="padding:15px; color:#ef4444;">暂无数据。</div>';
-        }
-    } catch (e) {
-        inner.innerHTML = `<div style="padding:15px; color:#ef4444;">网络错误：${e.message}</div>`;
-    }
-}
-
-async function installSayobotMap(sid, title, element) {
-    element.innerHTML = `
-        <div style="width: 100%;">
-            <div style="color:#60a5fa; margin-bottom: 5px;">下载中...</div>
-            <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
-                <div style="width: 50%; height: 100%; background: #3b82f6; animation: progressAnim 1s infinite linear;"></div>
-            </div>
-        </div>
-    `;
-    try {
-        const folderPath = document.getElementById('folder-input').value || localStorage.getItem('wm_folderPath');
-        const res = await fetch('/api/download_sayobot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sid, folderPath })
-        });
-        const data = await res.json();
-        if (data.success) {
-            element.innerHTML = '<div style="color:#34d399; font-weight:600;">成功！正在重建...</div>';
-            const scanRes = await fetch(`${LOCAL_API_URL}/scan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderPath, forceRescan: true }) });
-            const scanData = await scanRes.json();
-            if (scanData.success) {
-                beatmaps = scanData.beatmaps || [];
-                mapGroups = {};
-                beatmaps.forEach(bm => {
-                    const key = bm.dirPath;
-                    if (!mapGroups[key]) mapGroups[key] = [];
-                    mapGroups[key].push(bm);
-                });
-                renderMapList();
-                const targetMap = beatmaps.find(b => b.title === title || (b.title && b.title.includes(title)));
-                if (targetMap) {
-                    selectedMap = null; 
-                    const key = targetMap.dirPath;
-                    const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
-                    if (header) {
-                        if (!header.parentElement.classList.contains('expanded')) header.click();
-                        setTimeout(() => {
-                            const diffItem = document.querySelector(`.map-diff-item[data-id="${targetMap.id}"]`);
-                            if (diffItem) selectMap(targetMap, diffItem);
-                            startGame();
-                        }, 250);
-                    }
-                } else {
-                    alert("安装成功，但未能自动选中它。请手动搜索。");
-                }
-            }
-        } else {
-            element.innerHTML = `<div style="color:#ef4444;">失败：${data.error}</div>`;
-        }
-    } catch (e) {
-        element.innerHTML = `<div style="color:#ef4444;">错误：${e.message}</div>`;
-    }
-}
 
 document.addEventListener('click', () => { document.getElementById('context-menu').style.display = 'none'; });
 
@@ -624,7 +530,11 @@ function showContextMenu(e, dirPath) {
 
 document.getElementById('btn-random-map').onclick = () => {
     if (beatmaps.length === 0) return;
-    const rndMap = beatmaps[Math.floor(Math.random() * beatmaps.length)];
+    let availableMaps = beatmaps;
+    if (filterDir) availableMaps = beatmaps.filter(b => b.dirPath.includes(filterDir));
+    if (availableMaps.length === 0) return;
+
+    const rndMap = availableMaps[Math.floor(Math.random() * availableMaps.length)];
     const key = rndMap.dirPath;
     const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
     if (header) {
@@ -648,7 +558,7 @@ function renderMapList() {
     bgObserver.disconnect(); 
     mapGroups = {};
     beatmaps.forEach(bm => {
-        const key = bm.dirPath; // 按照物理文件夹分组
+        const key = bm.dirPath; 
         if (!mapGroups[key]) mapGroups[key] = [];
         mapGroups[key].push(bm);
     });
@@ -667,6 +577,10 @@ function renderMapList() {
         };
     });
 
+    if (filterDir) {
+        groupArray = groupArray.filter(g => g.dirPath.includes(filterDir));
+    }
+
     if (searchTerm) {
         groupArray = groupArray.filter(g => g.title.includes(searchTerm) || g.artist.includes(searchTerm) || g.maps.some(m => m.version.toLowerCase().includes(searchTerm)));
     }
@@ -683,26 +597,28 @@ function renderMapList() {
         return 0;
     });
 
-    const randomGroupEl = document.createElement('div');
-    randomGroupEl.className = 'map-group';
-    randomGroupEl.id = 'sayobot-group';
-    randomGroupEl.innerHTML = `
-        <div class="map-group-header" onclick="loadSayobotRandom()" style="border-left-color: #3b82f6;">
-            <div class="map-group-header-content">
-                <div style="font-weight:700; font-size:18px; color:#fff;">获取 Sayobot 谱面</div>
-                <div style="font-size:12px; color:#aaa; margin-top:2px;">从网络获取10张随机谱面</div>
+    if (!isSelector && !searchTerm && !filterDir) {
+        const randomGroupEl = document.createElement('div');
+        randomGroupEl.className = 'map-group';
+        randomGroupEl.id = 'sayobot-group';
+        randomGroupEl.innerHTML = `
+            <div class="map-group-header" onclick="loadSayobotRandom()" style="border-left-color: #3b82f6;">
+                <div class="map-group-header-content">
+                    <div style="font-weight:700; font-size:18px; color:#fff;">获取 Sayobot 谱面</div>
+                    <div style="font-size:12px; color:#aaa; margin-top:2px;">从网络获取10张随机谱面</div>
+                </div>
             </div>
-        </div>
-        <div class="map-diff-list" id="sayobot-diff-list" style="grid-template-rows: 0fr;">
-            <div class="map-diff-list-inner" id="sayobot-list-inner"></div>
-        </div>
-    `;
-    if (!searchTerm) list.appendChild(randomGroupEl);
+            <div class="map-diff-list" id="sayobot-diff-list" style="grid-template-rows: 0fr;">
+                <div class="map-diff-list-inner" id="sayobot-list-inner"></div>
+            </div>
+        `;
+        list.appendChild(randomGroupEl);
+    }
 
     if (groupArray.length === 0) {
         const emptyMsg = document.createElement('div');
         emptyMsg.style.cssText = "color:#aaa; text-align:center; padding: 50px;";
-        emptyMsg.innerHTML = '未找到匹配项。<br>请调整搜索条件或拖拽 .OSZ 文件导入。';
+        emptyMsg.innerHTML = filterDir ? '已过滤指定目录谱面，但未找到匹配项。' : '未找到匹配项。<br>请调整搜索条件或拖拽 .OSZ 文件导入。';
         list.appendChild(emptyMsg);
         return;
     }

@@ -26,15 +26,11 @@
     </div>
 
     <div id="multi-lobby-screen" class="screen">
+        <div class="top-btn" style="right: 40px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6;" onclick="showCreateRoomModal()">创建房间</div>
         <div class="multi-layout">
-            <div class="panel" style="flex: 2;">
+            <div class="panel" style="flex: 1;">
                 <h2>在线房间</h2>
                 <div id="room-list" style="flex: 1; overflow-y: auto;"></div>
-            </div>
-            <div class="panel" style="flex: 1; align-items: center; justify-content: center; text-align: center;">
-                <h3 style="color: #ccc; margin-bottom: 20px;">创建房间</h3>
-                <input type="text" id="new-room-name" class="setup-input" placeholder="房间名称" style="width: 100%;">
-                <button class="setup-btn" style="width: 100%;" onclick="createRoom()">创建</button>
             </div>
         </div>
     </div>
@@ -53,7 +49,7 @@
                 <div id="upload-status" style="text-align: center; color:#60a5fa; height: 16px; font-size: 12px;"></div>
 
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button class="setup-btn" style="flex: 1; background: rgba(255,255,255,0.1); color: #fff;" onclick="openMultiMapSelector()">添加谱面</button>
+                    <button class="setup-btn" style="flex: 1; background: rgba(255,255,255,0.1); color: #fff;" onclick="openMultiMapSelector()">添加本地谱面</button>
                 </div>
 
                 <div style="display: flex; gap: 15px; margin-top: auto;">
@@ -78,6 +74,34 @@
                         <button class="chat-send-btn" onclick="sendChat()">发送</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建房间弹窗 -->
+    <div id="create-room-overlay">
+        <div class="modal-box">
+            <div class="modal-title">创建房间</div>
+            <input type="text" id="new-room-name" class="setup-input" placeholder="房间名称">
+            <input type="password" id="new-room-pass" class="setup-input" placeholder="密码 (选填)">
+            <input type="number" id="new-room-max" class="setup-input" placeholder="最大人数 (2-32)" min="2" max="32" value="8">
+            <button class="setup-btn" style="background: rgba(255,255,255,0.1); color: #ddd;" onclick="openCreateRoomMapSelector()">选择首张谱面 (必选)</button>
+            <div id="create-room-map-name" style="font-size: 13px; color: #34d399; text-align: center;">未选择</div>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button class="setup-btn" style="flex:1; background: #4b5563;" onclick="closeCreateRoomModal()">取消</button>
+                <button class="setup-btn" style="flex:1;" onclick="createRoom()">确认创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 密码输入弹窗 -->
+    <div id="password-overlay">
+        <div class="modal-box">
+            <div class="modal-title">加入加密房间</div>
+            <input type="password" id="join-room-pass" class="setup-input" placeholder="请输入密码">
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button class="setup-btn" style="flex:1; background: #4b5563;" onclick="closePasswordModal()">取消</button>
+                <button class="setup-btn" style="flex:1;" onclick="submitJoinPassword()">确定</button>
             </div>
         </div>
     </div>

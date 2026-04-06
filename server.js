@@ -118,7 +118,6 @@ function clearCache() {
     }
 }
 
-// 动态控制主进程窗口的 Kiosk 模式
 app.post('/api/kiosk', (req, res) => {
     winControl.emit('set-kiosk', req.body.kiosk);
     res.json({ success: true });
@@ -315,6 +314,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         const folderPath = req.body.folderPath;
         if (!folderPath || !fs.existsSync(folderPath)) throw new Error('目标文件夹不存在');
         const zip = new AdmZip(req.file.path);
+        // 修改：提取并返回解压后的文件夹名
         const folderName = req.file.originalname.replace('.osz', '').replace(/[^a-zA-Z0-9 \-_]/g, '');
         const targetPath = path.join(folderPath, folderName);
         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
@@ -322,7 +322,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         fs.unlinkSync(req.file.path);
         
         clearCache();
-        res.json({ success: true });
+        res.json({ success: true, dirName: folderName });
     } catch (err) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         res.status(500).json({ error: err.message });

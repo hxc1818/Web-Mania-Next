@@ -111,6 +111,12 @@ window.onload = async () => {
                 </tr>
             `).join('');
         });
+
+        // 强行结束信号接收
+        socket.on('force_game_ended', () => {
+            if (gameEngine) gameEngine.state.failed = true;
+            quitGame();
+        });
     }
 
     if (specClientUid) {
@@ -431,7 +437,7 @@ class GameEngine {
 
         this.addEffect(type);
 
-        if (!this.isSpectator && !this.isReplay && isMulti) {
+        if (!this.isSpectator && !this.isReplay && isMulti && socket) {
             socket.emit('judge_event', {
                 judgeType: type, diff, lane, isTail, time: this.getTime(),
                 hp: this.state.hp, combo: this.state.combo, maxCombo: this.state.maxCombo,
@@ -550,7 +556,7 @@ class GameEngine {
         this.keys[lane] = true;
         const now = forcedTime !== null ? forcedTime : this.getTime();
 
-        if (!this.isSpectator && !this.isReplay && isMulti) {
+        if (!this.isSpectator && !this.isReplay && isMulti && socket) {
             socket.emit('key_event', { type: 'down', lane, time: now });
         }
 
@@ -584,7 +590,7 @@ class GameEngine {
         this.keys[lane] = false;
         const now = forcedTime !== null ? forcedTime : this.getTime();
 
-        if (!this.isSpectator && !this.isReplay && isMulti) {
+        if (!this.isSpectator && !this.isReplay && isMulti && socket) {
             socket.emit('key_event', { type: 'up', lane, time: now });
         }
 
@@ -644,7 +650,7 @@ class GameEngine {
             this.progressBar.style.width = prog + '%';
         }
 
-        if (isMulti && !this.isSpectator && !this.isReplay && now - this.lastMultiSend > 100) {
+        if (isMulti && socket && !this.isSpectator && !this.isReplay && now - this.lastMultiSend > 100) {
             socket.emit('game_update', { score: this.state.scoreV2, combo: this.state.combo, acc: this.state.acc, maxCombo: this.state.maxCombo, failed: this.state.failed });
             this.lastMultiSend = now;
         }
@@ -1041,7 +1047,7 @@ function onGameEnd(result) {
         }).catch(e => console.error("归档失败:", e));
     }
     
-    if (isMulti) {
+    if (isMulti && socket) {
         socket.emit('multi_game_end', { score: result.score, combo: result.combo, acc: result.acc, failed: result.failed });
         document.getElementById('waiting-overlay').style.display = 'flex';
     } else {
@@ -1170,6 +1176,15 @@ function quitGame() {
     document.getElementById('pause-screen').classList.remove('active'); 
     if (window.videoPlayer) { window.videoPlayer.destroy(); window.videoPlayer = null; }
     
+    if (isMulti && socket && gameEngine && gameEngine.isRunning && !gameEngine.state.failed) {
+        socket.emit('multi_game_end', { 
+            score: gameEngine.state.scoreV2 || 0, 
+            combo: gameEngine.state.combo || 0, 
+            acc: gameEngine.state.acc || 0, 
+            failed: true 
+        });
+    }
+
     if (gameEngine) {
         gameEngine.quit(); 
         gameEngine = null;
@@ -1179,7 +1194,9 @@ function quitGame() {
         document.exitFullscreen().catch(()=>{});
     }
 
-    window.location.href = isMulti ? 'multiplayer.html' : 'index.html'; 
+    setTimeout(() => {
+        window.location.href = isMulti ? 'multiplayer.html' : 'index.html'; 
+    }, 50);
 }
 
 document.getElementById('back-to-select').onclick = () => quitGame();

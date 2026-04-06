@@ -2,7 +2,7 @@
 #multi-login-screen { justify-content: center; align-items: center; background: radial-gradient(circle at center, #1e1e28 0%, #0f0f13 100%); }
 
 .multi-layout { display: flex; width: 100%; height: 100%; padding: 100px 40px 40px 40px; gap: 20px; background: transparent; }
-.panel { background: #1a1a24; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.panel { background: #1a1a24; border-radius: 16px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); position: relative; }
 .panel h2 { margin-top: 0; color: #fff; border-bottom: 2px solid rgba(255,255,255,0.1); padding-bottom: 10px; font-size: 18px; font-weight: 700; }
 
 .room-list-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: 0.2s ease; border-left: 4px solid transparent; }
@@ -21,8 +21,12 @@
 
 .queue-item { background: rgba(0,0,0,0.2); padding: 12px 15px; border-radius: 8px; margin-bottom: 8px; border-left: 4px solid #3b82f6; display: flex; justify-content: space-between; align-items: center; }
 .queue-item-info { display: flex; flex-direction: column; }
-.queue-item-remove { cursor: pointer; color: #ef4444; font-size: 12px; font-weight: 700; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; transition: 0.2s; }
+.queue-item-actions { display: flex; gap: 8px; align-items: center; }
+.queue-item-btn { cursor: pointer; font-size: 12px; font-weight: 700; padding: 6px 10px; border-radius: 6px; transition: 0.2s; }
+.queue-item-remove { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
 .queue-item-remove:hover { background: #ef4444; color: #fff; }
+.queue-item-dl { color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+.queue-item-dl:hover { background: #3b82f6; color: #fff; }
 
 .chat-container { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden; margin-top: 10px; }
 .chat-messages { flex: 1; overflow-y: auto; padding: 15px; font-size: 14px; display: flex; flex-direction: column; gap: 8px; }
@@ -31,7 +35,11 @@
 .chat-send-btn { background: #3b82f6; border: none; color: #fff; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; }
 .chat-send-btn:hover { background: #60a5fa; }
 
-#select-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(10,10,15,0.95); z-index: 200; display: none; flex-direction: column; }
-.overlay-close { padding: 15px 30px; text-align: right; font-size: 24px; color: #aaa; cursor: pointer; background: #0f0f13; font-weight: bold; border-bottom: 1px solid #222; transition: 0.2s; }
+/* 浮动模态框 overlay */
+#select-overlay, #create-room-overlay, #password-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(10,10,15,0.95); z-index: 200; display: none; flex-direction: column; justify-content: center; align-items: center; }
+.overlay-close { width: 100%; padding: 15px 30px; text-align: right; font-size: 24px; color: #aaa; cursor: pointer; background: #0f0f13; font-weight: bold; border-bottom: 1px solid #222; transition: 0.2s; }
 .overlay-close:hover { color: #fff; background: #ef4444; }
 .select-iframe { flex: 1; width: 100%; border: none; }
+
+.modal-box { background: #1a1a24; padding: 30px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 15px; }
+.modal-title { font-size: 20px; font-weight: bold; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 5px; }

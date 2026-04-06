@@ -6,6 +6,10 @@ let beatmapsCache = [];
 let roomAudio = new Audio();
 let contextTargetPlayerId = null;
 
+let pendingRoomJoinId = null; 
+let initialFirstMap = null; 
+let isCreatingRoom = false; 
+
 // 平滑过渡多人大厅背景音量
 function setRoomAudioVolumeSmoothly(targetVol, duration = 300) {
     if(!roomAudio) return;
@@ -47,6 +51,16 @@ function updateRoomAudioVolume() {
 window.addEventListener('blur', updateRoomAudioVolume);
 window.addEventListener('focus', updateRoomAudioVolume);
 
+window.addEventListener('beforeunload', () => {
+    if (socket && socket.connected) socket.emit('leave_room');
+});
+
+document.querySelectorAll('.mode-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        if(socket && socket.connected) socket.emit('leave_room');
+    });
+});
+
 window.addEventListener('DOMContentLoaded', async () => {
     if (!localStorage.getItem('wm_folderPath')) {
         alert('请先在 Single Player 模式下完成初始化设置。');
@@ -71,8 +85,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     if (savedUsername) {
         document.getElementById('username-input').value = savedUsername;
-        document.getElementById('new-room-name').value = `${savedUsername}的房间`;
-        
         if (sessionStorage.getItem('webmania_multi') !== 'true') {
             joinMultiLobby(targetRoom);
         } else if (sessionStorage.getItem('webmania_multi_room')) {
@@ -108,20 +120,37 @@ function setupMultiSocketEvents(targetRoomId = null) {
         socket.disconnect();
         socket = null;
     });
+
+    socket.on('error_msg', (msg) => { alert(msg); });
+
     socket.on('room_list', rooms => {
         document.getElementById('room-list').innerHTML = rooms.map(r => `
-            <div class="room-list-item" onclick="joinRoom('${r.id}')">
-                <div><b style="font-size:16px;">${r.name}</b> <span style="font-size:12px;color:#aaa;margin-left:10px;">[人数: ${r.players.length}]</span></div>
+            <div class="room-list-item" onclick="attemptJoinRoom('${r.id}', ${r.hasPassword})">
+                <div>
+                    ${r.hasPassword ? '<span style="color:#fbbf24; margin-right:5px;">🔒</span>' : ''}
+                    <b style="font-size:16px; color:#fff;">${r.name}</b> 
+                    <span style="font-size:12px;color:#aaa;margin-left:10px;">[人数: ${r.playersCount}/${r.maxPlayers}]</span>
+                </div>
                 <div style="font-weight:600; color:${r.state==='playing'?'#fca5a5':'#6ee7b7'}">${r.state === 'playing' ? '游戏中' : '等待中'}</div>
             </div>
         `).join('');
     });
+    
+    socket.on('room_joined_success', rid => {
+        closeCreateRoomModal();
+        closePasswordModal();
+        window.history.replaceState({}, '', `multiplayer.html?room=${rid}`);
+        showScreen('multi-room-screen');
+    });
+
     socket.on('room_update', r => { roomData = r; updateRoomUI(); });
+
     socket.on('chat_message', msg => {
         const chatBox = document.getElementById('chat-messages');
         chatBox.innerHTML += `<div><b style="color:#60a5fa;">${msg.sender}:</b> <span style="color:#ddd">${msg.text}</span></div>`;
         chatBox.scrollTop = chatBox.scrollHeight;
     });
+
     socket.on('game_started', (updatedRoomData) => {
         roomData = updatedRoomData;
         const me = roomData.players.find(p => p.uid === multiUid);
@@ -138,10 +167,9 @@ function setupMultiSocketEvents(targetRoomId = null) {
         roomAudio.pause();
         window.location.href = 'game.html';
     });
-    socket.on('kicked', () => {
-        alert('您已被房主踢出。');
-        leaveRoom();
-    });
+
+    socket.on('kicked', () => { alert('您已被房主踢出。'); leaveRoom(); });
+
     socket.on('room_not_found', () => {
         alert('房间已关闭或不存在。');
         window.history.replaceState({}, '', 'multiplayer.html');
@@ -150,7 +178,6 @@ function setupMultiSocketEvents(targetRoomId = null) {
 
     if (targetRoomId) {
         socket.emit('join_room', { roomId: targetRoomId });
-        showScreen('multi-room-screen');
     }
 }
 
@@ -173,16 +200,49 @@ function joinMultiLobby(targetRoomId = null) {
     }
 }
 
-function createRoom() {
-    const name = document.getElementById('new-room-name').value || (multiUsername.split('#')[0] + "的房间");
-    socket.emit('create_room', { name, isPrivate: false });
-    showScreen('multi-room-screen');
+/* --- 房间创建模态框逻辑 --- */
+function showCreateRoomModal() {
+    document.getElementById('create-room-overlay').style.display = 'flex';
+    document.getElementById('new-room-pass').value = '';
+    initialFirstMap = null;
+    document.getElementById('create-room-map-name').innerText = '未选择';
+}
+function closeCreateRoomModal() { document.getElementById('create-room-overlay').style.display = 'none'; }
+
+function openCreateRoomMapSelector() {
+    isCreatingRoom = true;
+    document.getElementById('select-overlay').style.display = 'flex';
+    const iframe = document.getElementById('select-iframe');
+    if (!iframe.src) iframe.src = 'index.html?selector=true';
 }
 
-function joinRoom(id) {
-    window.history.replaceState({}, '', `multiplayer.html?room=${id}`);
-    socket.emit('join_room', { roomId: id });
-    showScreen('multi-room-screen');
+function createRoom() {
+    const name = document.getElementById('new-room-name').value.trim();
+    if (!name) return alert("房间名不能为空");
+    if (!initialFirstMap) return alert("必须选择一张谱面才能创建房间");
+    const pwd = document.getElementById('new-room-pass').value.trim();
+    const maxP = parseInt(document.getElementById('new-room-max').value);
+    
+    socket.emit('create_room', { 
+        name, password: pwd || null, maxPlayers: isNaN(maxP)? 8 : Math.max(2, Math.min(32, maxP)),
+        firstMap: initialFirstMap
+    });
+}
+
+/* --- 加入房间密码逻辑 --- */
+function attemptJoinRoom(id, hasPassword) {
+    if (hasPassword) {
+        pendingRoomJoinId = id;
+        document.getElementById('password-overlay').style.display = 'flex';
+        document.getElementById('join-room-pass').value = '';
+    } else {
+        socket.emit('join_room', { roomId: id });
+    }
+}
+function closePasswordModal() { document.getElementById('password-overlay').style.display = 'none'; pendingRoomJoinId = null; }
+function submitJoinPassword() {
+    const pwd = document.getElementById('join-room-pass').value.trim();
+    if(pendingRoomJoinId) socket.emit('join_room', { roomId: pendingRoomJoinId, password: pwd });
 }
 
 function leaveRoom() {
@@ -211,15 +271,22 @@ function updateRoomUI() {
     if (roomData.mapQueue.length === 0) {
         queueList.innerHTML = '<div style="color:#666; text-align:center; padding: 20px;">队列为空</div>';
     } else {
-        queueList.innerHTML = roomData.mapQueue.map((m, i) => `
+        queueList.innerHTML = roomData.mapQueue.map((m, i) => {
+            const canDelete = isHost || m.adderUid === multiUid;
+            const hasLocal = checkLocalMap(m);
+            return `
             <div class="queue-item">
                 <div class="queue-item-info">
                     <span style="font-weight:700; font-size:14px; color:#fff;">[0${i+1}] ${m.title}</span>
                     <span style="font-size:12px; color:#aaa;">${m.artist} // ${m.version}</span>
+                    <span style="font-size:11px; color:#60a5fa; margin-top:2px;">[添加者: ${m.adderName || '房主'}]</span>
                 </div>
-                ${isHost ? `<div class="queue-item-remove" onclick="socket.emit('remove_from_queue', ${i})">删除</div>` : ''}
-            </div>
-        `).join('');
+                <div class="queue-item-actions">
+                    ${!hasLocal && m.url ? `<div class="queue-item-btn queue-item-dl" onclick="downloadMapFromQueue(${i})">下载</div>` : ''}
+                    ${canDelete ? `<div class="queue-item-btn queue-item-remove" onclick="socket.emit('remove_from_queue', ${i})">删除</div>` : ''}
+                </div>
+            </div>`;
+        }).join('');
     }
 
     const currentMap = roomData.mapQueue.length > 0 ? roomData.mapQueue[0] : null;
@@ -260,7 +327,7 @@ function updateRoomUI() {
     document.getElementById('player-list').innerHTML = roomData.players.map(p => `
         <div class="player-item" oncontextmenu="showContextMenu(event, '${p.uid}')">
             <span style="font-size:14px; color:#eee;">${p.uid === roomData.host ? '<span style="color:#fbbf24">[房主]</span> ' : ''}<b>${p.name}</b></span>
-            <span class="status-badge st-${p.status}">${statusNames[p.status] || p.status} ${p.isOffline ? '(离线)' : ''}</span>
+            <span class="status-badge st-${p.status}">${statusNames[p.status] || p.status} ${p.status==='downloading'&&p.downloadProgress?`(${p.downloadProgress}%)`:''} ${p.isOffline ? '(离线)' : ''}</span>
         </div>
     `).join('');
 
@@ -272,23 +339,43 @@ function updateRoomUI() {
 
     const actBtn = document.getElementById('btn-action');
     const specBtn = document.getElementById('btn-spectate');
+    
+    actBtn.onmousedown = null; actBtn.onmouseup = null; actBtn.onmouseleave = null;
 
     if (roomData.state === 'playing') {
         specBtn.style.display = 'none';
-        actBtn.innerText = '加入观战';
-        actBtn.onclick = () => {
-            sessionStorage.setItem('webmania_multi', 'true');
-            sessionStorage.setItem('webmania_multi_room', JSON.stringify(roomData));
-            sessionStorage.setItem('webmania_multi_uid', multiUid);
-            sessionStorage.setItem('webmania_multi_role', 'spectator');
-            if (currentMap) {
-                const foundMap = beatmapsCache.find(b => b.title === currentMap.title && b.version === currentMap.version);
-                if (foundMap) sessionStorage.setItem('webmania_current_map', JSON.stringify(foundMap));
-            }
-            roomAudio.pause();
-            window.location.href = 'game.html';
-        };
-        actBtn.style.background = '#8b5cf6'; actBtn.style.color = '#fff';
+        if (isHost && me.status !== 'playing') {
+            actBtn.innerText = '长按结束比赛';
+            actBtn.style.background = '#ef4444'; actBtn.style.color = '#fff';
+            
+            let forceEndTimer;
+            actBtn.onmousedown = () => {
+                actBtn.innerText = '结束中...';
+                forceEndTimer = setTimeout(() => {
+                    socket.emit('force_end_game');
+                    actBtn.innerText = '已发送结束指令';
+                }, 1000);
+            };
+            actBtn.onmouseup = actBtn.onmouseleave = () => {
+                clearTimeout(forceEndTimer);
+                if (actBtn.innerText === '结束中...') actBtn.innerText = '长按结束比赛';
+            };
+        } else {
+            actBtn.innerText = '加入观战';
+            actBtn.onclick = () => {
+                sessionStorage.setItem('webmania_multi', 'true');
+                sessionStorage.setItem('webmania_multi_room', JSON.stringify(roomData));
+                sessionStorage.setItem('webmania_multi_uid', multiUid);
+                sessionStorage.setItem('webmania_multi_role', 'spectator');
+                if (currentMap) {
+                    const foundMap = beatmapsCache.find(b => b.title === currentMap.title && b.version === currentMap.version);
+                    if (foundMap) sessionStorage.setItem('webmania_current_map', JSON.stringify(foundMap));
+                }
+                roomAudio.pause();
+                window.location.href = 'game.html';
+            };
+            actBtn.style.background = '#8b5cf6'; actBtn.style.color = '#fff';
+        }
     } else {
         specBtn.style.display = 'block';
         specBtn.innerText = me.status === 'spectating' ? '停止观战' : '观战';
@@ -304,7 +391,7 @@ function updateRoomUI() {
         } else if (me.status === 'nomap') {
             if (currentMap.url) {
                 actBtn.innerText = '下载谱面';
-                actBtn.onclick = downloadMap;
+                actBtn.onclick = () => executeDownload(currentMap);
                 actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
             } else {
                 actBtn.innerText = '房主未分享该谱面';
@@ -314,7 +401,7 @@ function updateRoomUI() {
         } else if (me.status === 'spectating' && !checkLocalMap(currentMap)) {
             if (currentMap.url) {
                 actBtn.innerText = '下载谱面以观战';
-                actBtn.onclick = downloadMap;
+                actBtn.onclick = () => executeDownload(currentMap);
                 actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
             } else {
                 actBtn.innerText = '无法观战 (缺少谱面)';
@@ -325,7 +412,7 @@ function updateRoomUI() {
             actBtn.innerText = '下载中...';
             actBtn.onclick = null;
             actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
-        } else if (me.status === 'idle') {
+        } else if (me.status === 'idle' || me.status === 'finished') {
             actBtn.innerText = '准备';
             actBtn.onclick = () => socket.emit('change_status', 'ready');
             actBtn.style.background = '#10b981'; actBtn.style.color = '#fff';
@@ -342,23 +429,36 @@ function updateRoomUI() {
             }
         }
     }
-    window.history.replaceState({}, '', `multiplayer.html?room=${roomData.id}`);
 }
 
-async function downloadMap() {
-    if (!roomData || roomData.mapQueue.length === 0) return;
-    const currentMap = roomData.mapQueue[0];
-    if (!currentMap.url) return;
-
+// 通用下载逻辑 (含进度条)
+async function executeDownload(mapInfo) {
+    if (!mapInfo || !mapInfo.url) return;
     const previousStatus = roomData.players.find(p => p.uid === multiUid)?.status;
     socket.emit('change_status', 'downloading');
     const sts = document.getElementById('upload-status');
     try {
-        sts.innerText = "正在从远程服务器下载...";
-        const res = await fetch(currentMap.url); 
+        sts.innerText = "开始从远程服务器下载...";
+        const res = await fetch(mapInfo.url);
         if (!res.ok) throw new Error('文件损坏或丢失');
-        const blob = await res.blob();
-        
+
+        const contentLength = +res.headers.get('Content-Length');
+        const reader = res.body.getReader();
+        let receivedLength = 0;
+        let chunks = [];
+
+        while(true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            receivedLength += value.length;
+            if (contentLength) {
+                const prog = Math.round((receivedLength / contentLength) * 100);
+                socket.emit('download_progress', prog);
+            }
+        }
+
+        const blob = new Blob(chunks);
         sts.innerText = "正在本地解压文件...";
         const fd = new FormData();
         fd.append('file', blob, 'map.osz');
@@ -380,6 +480,12 @@ async function downloadMap() {
     }
 }
 
+// 供队列下载按钮调用
+window.downloadMapFromQueue = function(index) {
+    if (!roomData) return;
+    executeDownload(roomData.mapQueue[index]);
+};
+
 async function getFileHash(fileOrBlob) {
     const buffer = await fileOrBlob.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
@@ -397,48 +503,96 @@ dropZone.ondrop = async e => {
     const sts = document.getElementById('upload-status');
     
     try {
-        sts.innerText = "正在检查远程服务器是否已存在该谱面...";
+        sts.innerText = "正在解析并导入本地...";
+        const localFd = new FormData();
+        localFd.append('file', file);
+        localFd.append('folderPath', localStorage.getItem('wm_folderPath'));
+        const localRes = await fetch(`${LOCAL_API_URL}/upload`, { method: 'POST', body: localFd });
+        const localData = await localRes.json();
+        
+        if (!localData.success) throw new Error("本地解压失败: " + localData.error);
+        const extractDirName = localData.dirName;
+
+        // 同步缓存
+        const scanRes = await fetch(`${LOCAL_API_URL}/scan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderPath: localStorage.getItem('wm_folderPath'), forceRescan: true }) });
+        const scanData = await scanRes.json();
+        if(scanData.success) beatmapsCache = scanData.beatmaps || [];
+
+        sts.innerText = "正在同步至远程服务器...";
         const hashHex = await getFileHash(file);
         
         const checkRes = await fetch(`${REMOTE_API_URL}/check_map_hash?hash=${hashHex}`);
         const checkData = await checkRes.json();
 
-        if (checkData.exists) {
-            sts.innerText = "触发秒传！正在添加谱面至队列...";
-            socket.emit('add_map_to_queue', { url: checkData.data.url, title: checkData.data.title, artist: checkData.data.artist, version: checkData.data.version });
-            setTimeout(() => sts.innerText = "", 3000);
-            return; 
+        if (!checkData.exists) {
+            const fd = new FormData(); 
+            fd.append('file', file);
+            fd.append('hash', hashHex); 
+            const upRes = await fetch(`${REMOTE_API_URL}/upload_room_map`, { method: 'POST', body: fd });
+            const upData = await upRes.json();
+            if (!upData.success) throw new Error(upData.error);
         }
 
-        sts.innerText = "正在上传 .osz 至远程服务器...";
-        const fd = new FormData(); 
-        fd.append('file', file);
-        fd.append('hash', hashHex); 
-        
-        const res = await fetch(`${REMOTE_API_URL}/upload_room_map`, { method: 'POST', body: fd });
-        const data = await res.json();
-        if (data.success) {
-            sts.innerText = "上传完成，已添加至队列！";
-            socket.emit('add_map_to_queue', { url: data.url, title: data.title, artist: data.artist, version: data.version });
-            setTimeout(() => sts.innerText = "", 2000);
-        } else throw new Error(data.error);
+        sts.innerText = "上传成功，请选择要添加的难度";
+        setTimeout(() => sts.innerText = "", 3000);
+
+        // 打开带有 filter 的选择器
+        isCreatingRoom = false;
+        document.getElementById('select-overlay').style.display = 'flex';
+        const iframe = document.getElementById('select-iframe');
+        iframe.src = `index.html?selector=true&filterDir=${encodeURIComponent(extractDirName)}`;
+
     } catch (e) { sts.innerText = "错误: " + e.message; }
 };
 
 function openMultiMapSelector() {
+    isCreatingRoom = false;
     document.getElementById('select-overlay').style.display = 'flex';
     const iframe = document.getElementById('select-iframe');
-    if (!iframe.src) iframe.src = 'index.html?selector=true';
+    if (!iframe.src || iframe.src.includes('filterDir')) iframe.src = 'index.html?selector=true';
 }
 
-function closeMapSelector() { document.getElementById('select-overlay').style.display = 'none'; }
+function closeMapSelector() { 
+    document.getElementById('select-overlay').style.display = 'none'; 
+    const iframe = document.getElementById('select-iframe');
+    iframe.src = ''; // 强行停止 iframe 内音频并释放资源
+}
 
 window.addEventListener('message', async e => {
     if (e.data && e.data.type === 'select_map') {
-        closeMapSelector();
         const map = e.data.map;
+        closeMapSelector();
+
+        if (isCreatingRoom) {
+            isCreatingRoom = false;
+            // 获取分享链接
+            try {
+                const packRes = await fetch(`${LOCAL_API_URL}/pack_map`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dirPath: map.dirPath }) });
+                if (!packRes.ok) throw new Error("打包失败");
+                const blob = await packRes.blob();
+                const hashHex = await getFileHash(blob);
+                const checkRes = await fetch(`${REMOTE_API_URL}/check_map_hash?hash=${hashHex}`);
+                const checkData = await checkRes.json();
+                let finalUrl = null;
+                if (checkData.exists) finalUrl = checkData.data.url;
+                else {
+                    const fd = new FormData(); fd.append('file', blob, 'map.osz'); fd.append('hash', hashHex);
+                    const upRes = await fetch(`${REMOTE_API_URL}/upload_room_map`, { method: 'POST', body: fd });
+                    finalUrl = (await upRes.json()).url;
+                }
+                initialFirstMap = { title: map.title, artist: map.artist, version: map.version, url: finalUrl, id: map.id };
+                document.getElementById('create-room-map-name').innerText = `已选: ${map.title} // ${map.version}`;
+            } catch (err) {
+                alert("准备首张谱面失败: " + err.message);
+                initialFirstMap = { title: map.title, artist: map.artist, version: map.version, url: null, id: map.id };
+                document.getElementById('create-room-map-name').innerText = `已选 (未分享): ${map.title} // ${map.version}`;
+            }
+            return;
+        }
+
+        // 普通添加或拖拽上传后选中
         const sts = document.getElementById('upload-status');
-        sts.innerText = "正在打包本地谱面文件夹...";
+        sts.innerText = "正在打包本地谱面文件夹以检查同步...";
 
         try {
             const packRes = await fetch(`${LOCAL_API_URL}/pack_map`, {
@@ -450,10 +604,9 @@ window.addEventListener('message', async e => {
             if (!packRes.ok) throw new Error("本地打包失败");
             const blob = await packRes.blob();
 
-            sts.innerText = "正在计算哈希值...";
+            sts.innerText = "正在检查远程服务器是否已存在该谱面...";
             const hashHex = await getFileHash(blob);
 
-            sts.innerText = "正在检查远程服务器是否已存在该谱面...";
             const checkRes = await fetch(`${REMOTE_API_URL}/check_map_hash?hash=${hashHex}`);
             const checkData = await checkRes.json();
 
