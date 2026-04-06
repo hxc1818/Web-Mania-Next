@@ -31,6 +31,9 @@ let retryHoldTimer = null;
 let retryProgress = 0;
 
 window.onload = async () => {
+    // 防止幽灵问题 👻
+    sessionStorage.removeItem('webmania_is_navigating_to_game');
+
     const mapData = sessionStorage.getItem('webmania_current_map');
     if (mapData) selectedMap = JSON.parse(mapData);
     
@@ -63,11 +66,12 @@ window.onload = async () => {
         
         if (!specClientUid) {
             socket.emit('join_multi', { uid: myUid, username: localStorage.getItem('wm_username') });
+            socket.emit('join_room', { roomId: roomInfo.id });
         } else {
+            // 修复：观战的 iframe 发送专属身份，避免在服务端抢占大厅人数限制 👀
             socket.emit('join_multi', { uid: 'spec_' + Math.random().toString(36).substr(2,9), username: 'SpectatorViewer' });
+            socket.emit('join_room', { roomId: roomInfo.id, isSpectatorClient: true });
         }
-        
-        socket.emit('join_room', { roomId: roomInfo.id });
         
         socket.on('room_game_update', data => {
             playerScores[data.uid] = data;
@@ -140,8 +144,9 @@ window.onload = async () => {
         if (players.length === 0) {
             document.getElementById('spectator-grid').innerHTML = '<div style="color:#aaa; margin: auto; font-size:20px; font-weight:600;">当前没有玩家在游戏中。</div>';
         } else {
+            // 修复：添加 allow="autoplay" 属性，防止由于限制导致音频和时间轴冻结 🎵
             document.getElementById('spectator-grid').innerHTML = players.map(p => 
-                `<iframe class="spec-iframe" src="game.html?spectate_client=${p.uid}"></iframe>`
+                `<iframe class="spec-iframe" src="game.html?spectate_client=${p.uid}" allow="autoplay"></iframe>`
             ).join('');
         }
     } 
@@ -225,6 +230,7 @@ class GameEngine {
         this.isPaused = false;
         this.audioSource = null;
         this.startTime = 0;
+        this.fallbackStartTime = 0;
 
         // 关键修复：用于纯享版自动触发打点音效的游标
         this.nextSoundNoteIndex = 0;
@@ -327,8 +333,14 @@ class GameEngine {
         this.audioSource.buffer = this.audioBuffer;
         this.audioSource.connect(this.musicGain);
         
-        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
-        this.startTime = this.audioCtx.currentTime;
+        this.fallbackStartTime = performance.now();
+        
+        // 修复：观战的 iframe 可能在浏览器策略下自动阻止播放音频 🎧
+        if (this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume().catch(e => console.warn("Audio autoplay prevented", e));
+        }
+
+        this.startTime = this.audioCtx.currentTime; // 被挂起时通常是 0
         this.audioSource.start(0);
         this.isRunning = true;
         this.isPaused = false;
@@ -355,7 +367,7 @@ class GameEngine {
         window.removeEventListener('focus', this.onFocus);
 
         if (this.audioSource) { try { this.audioSource.stop(); this.audioSource.disconnect(); } catch(e) {} }
-        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(()=>{});
     }
 
     endGame() {
@@ -384,7 +396,16 @@ class GameEngine {
         });
     }
 
-    getTime() { return ((this.audioCtx.currentTime - this.startTime) * 1000) - (userSettings.offset || 0); }
+    // 修复：给没有授权播放音频的观战端兜底时间轴计算 🕰️
+    getTime() { 
+        let t = 0;
+        if (this.audioCtx.state === 'running') {
+            t = (this.audioCtx.currentTime - this.startTime) * 1000;
+        } else {
+            t = performance.now() - this.fallbackStartTime;
+        }
+        return t - (userSettings.offset || 0); 
+    }
 
     playHitSound(buffer, volumeScale = 1.0) {
         if (!this.audioCtx || !buffer) return;
@@ -1202,7 +1223,6 @@ function quitGame() {
 document.getElementById('back-to-select').onclick = () => quitGame();
 
 window.addEventListener('keydown', (e) => {
-    // 关键修复：拦截ESC并阻止默认的自动退出全屏，确保按键逻辑走暂定
     if (e.code === 'Escape') {
         e.preventDefault();
         if (gameEngine && gameEngine.isRunning) {

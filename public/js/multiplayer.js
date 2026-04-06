@@ -9,6 +9,7 @@ let contextTargetPlayerId = null;
 let pendingRoomJoinId = null; 
 let initialFirstMap = null; 
 let isCreatingRoom = false; 
+let isNavigatingToGame = false; // 新增：用于防止跳转页面时发送 leave_room 销毁房间 🛡️
 
 // 平滑过渡多人大厅背景音量
 function setRoomAudioVolumeSmoothly(targetVol, duration = 300) {
@@ -51,13 +52,14 @@ function updateRoomAudioVolume() {
 window.addEventListener('blur', updateRoomAudioVolume);
 window.addEventListener('focus', updateRoomAudioVolume);
 
+// 修复：加入拦截变量，只有主动离开才销毁房间 🚀
 window.addEventListener('beforeunload', () => {
-    if (socket && socket.connected) socket.emit('leave_room');
+    if (!isNavigatingToGame && socket && socket.connected) socket.emit('leave_room');
 });
 
 document.querySelectorAll('.mode-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-        if(socket && socket.connected) socket.emit('leave_room');
+        if(!isNavigatingToGame && socket && socket.connected) socket.emit('leave_room');
     });
 });
 
@@ -165,6 +167,7 @@ function setupMultiSocketEvents(targetRoomId = null) {
             if (foundMap) sessionStorage.setItem('webmania_current_map', JSON.stringify(foundMap));
         }
         roomAudio.pause();
+        isNavigatingToGame = true; // 确保不发送 leave_room 🚪
         window.location.href = 'game.html';
     });
 
@@ -372,6 +375,7 @@ function updateRoomUI() {
                     if (foundMap) sessionStorage.setItem('webmania_current_map', JSON.stringify(foundMap));
                 }
                 roomAudio.pause();
+                isNavigatingToGame = true; // 防护盾启动 🛡️
                 window.location.href = 'game.html';
             };
             actBtn.style.background = '#8b5cf6'; actBtn.style.color = '#fff';
