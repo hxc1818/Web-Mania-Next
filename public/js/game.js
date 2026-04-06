@@ -220,6 +220,9 @@ class GameEngine {
         this.audioSource = null;
         this.startTime = 0;
 
+        // 关键修复：用于纯享版自动触发打点音效的游标
+        this.nextSoundNoteIndex = 0;
+
         this.remoteKeyEvents = this.isReplay ? [...replayData.events] : []; 
         this.recordedEvents = []; 
 
@@ -289,10 +292,28 @@ class GameEngine {
 
         this.masterGain.gain.value = document.hasFocus() ? mVol : bgVol;
         this.musicGain.gain.value = muVol;
-        this.sfxGain.gain.value = sfxVol; // 动态挂载按键音效音量推杆
+        this.sfxGain.gain.value = sfxVol;
 
-        window.addEventListener('blur', () => { if(this.masterGain) this.masterGain.gain.value = bgVol; });
-        window.addEventListener('focus', () => { if(this.masterGain) this.masterGain.gain.value = mVol; });
+        // 关键修复：窗口失焦和聚焦时的平滑音量过渡机制
+        this.onBlur = () => {
+            const vol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+            if (this.masterGain && this.audioCtx.state === 'running') {
+                this.masterGain.gain.setTargetAtTime(vol, this.audioCtx.currentTime, 0.2);
+            } else if (this.masterGain) {
+                this.masterGain.gain.value = vol;
+            }
+        };
+        this.onFocus = () => {
+            const vol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+            if (this.masterGain && this.audioCtx.state === 'running') {
+                this.masterGain.gain.setTargetAtTime(vol, this.audioCtx.currentTime, 0.2);
+            } else if (this.masterGain) {
+                this.masterGain.gain.value = vol;
+            }
+        };
+
+        window.addEventListener('blur', this.onBlur);
+        window.addEventListener('focus', this.onFocus);
     }
 
     start() {
@@ -324,6 +345,9 @@ class GameEngine {
 
     quit() {
         this.isRunning = false;
+        window.removeEventListener('blur', this.onBlur);
+        window.removeEventListener('focus', this.onFocus);
+
         if (this.audioSource) { try { this.audioSource.stop(); this.audioSource.disconnect(); } catch(e) {} }
         if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
     }
@@ -356,7 +380,6 @@ class GameEngine {
 
     getTime() { return ((this.audioCtx.currentTime - this.startTime) * 1000) - (userSettings.offset || 0); }
 
-    // 播放特定样本音频
     playHitSound(buffer, volumeScale = 1.0) {
         if (!this.audioCtx || !buffer) return;
         const source = this.audioCtx.createBufferSource();
@@ -368,7 +391,6 @@ class GameEngine {
         source.start(0);
     }
 
-    // 播放系统默认生成打击音频（如果没有解析出自定义样本的话）
     playDefaultHitSound() {
         if (!this.audioCtx) return;
         const osc = this.audioCtx.createOscillator();
@@ -554,19 +576,6 @@ class GameEngine {
             if (target.type === 'hold' && j !== 'miss') target.isHolding = true;
             this.addJudge(j, diff, lane, false); 
         }
-
-        // 播放打点对应抓取的击打音效
-        const enableSounds = userSettings.enableHitSounds !== false;
-        if (enableSounds) {
-            if (target && target.samples && target.samples.length > 0) {
-                target.samples.forEach(s => {
-                    const buffer = this.hitSounds[s.filename];
-                    if (buffer) this.playHitSound(buffer, s.volume / 100);
-                });
-            } else {
-                this.playDefaultHitSound();
-            }
-        }
     }
 
     onKeyUp(lane, forcedTime = null) {
@@ -647,6 +656,26 @@ class GameEngine {
                 const evt = this.remoteKeyEvents.shift();
                 if (evt.type === 'down') this.onKeyDown(evt.lane, evt.time);
                 else if (evt.type === 'up') this.onKeyUp(evt.lane, evt.time);
+            }
+        }
+
+        // 关键修复：纯享版自动打击音效，由时间轴全自动控制
+        const enableSounds = userSettings.enableHitSounds !== false;
+        if (enableSounds && !this.isPaused && this.isRunning) {
+            while (this.nextSoundNoteIndex < this.notes.length && now >= this.notes[this.nextSoundNoteIndex].time) {
+                const note = this.notes[this.nextSoundNoteIndex];
+                if (!note.soundPlayed) {
+                    note.soundPlayed = true;
+                    if (note.samples && note.samples.length > 0) {
+                        note.samples.forEach(s => {
+                            const buffer = this.hitSounds[s.filename];
+                            if (buffer) this.playHitSound(buffer, s.volume / 100);
+                        });
+                    } else {
+                        this.playDefaultHitSound();
+                    }
+                }
+                this.nextSoundNoteIndex++;
             }
         }
 
@@ -850,7 +879,6 @@ async function initGame(isSpectating) {
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
         if (initId !== currentInitId) return;
         
-        // ---------- 抓取并预加载提取的按键音效 ----------
         const uniqueSamples = new Set();
         parsed.notes.forEach(n => {
             if (n.samples) n.samples.forEach(s => uniqueSamples.add(s.filename));
@@ -869,7 +897,6 @@ async function initGame(isSpectating) {
             } catch (e) { console.warn('未能加载自定义音效文件:', filename); }
         });
         await Promise.all(fetchPromises);
-        // ------------------------------------------------
 
         const canvas = document.getElementById('game-canvas');
 
@@ -878,7 +905,7 @@ async function initGame(isSpectating) {
         gameEngine = new GameEngine(
             canvas, parsed, audioBuffer, audioCtx, 
             selectedMap.stars || getFakeStars(selectedMap.version), 
-            onGameEnd, currentLeaderboard, isSpectating, loadedHitSounds // 这里将预加载的音效抛入引擎
+            onGameEnd, currentLeaderboard, isSpectating, loadedHitSounds 
         );
         gameEngine.start();
     } catch (e) {
@@ -893,7 +920,7 @@ function parseOsuFile(osuText) {
     const lines = osuText.split(/\r?\n/);
     let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
     const notes = [];
-    const samples = []; // 存储抓取到的故事板/事件音频
+    const samples = []; 
     
     for (let line of lines) {
         line = line.trim();
@@ -913,7 +940,6 @@ function parseOsuFile(osuText) {
                     videoPath = parts[2].replace(/"/g, '').trim();
                 }
             } else if (parts[0] === 'Sample') {
-                // 故事板中的音频记录格式: Sample,time,layer,"filename",volume
                 if (parts.length >= 4) {
                     const sTime = parseInt(parts[1]);
                     const sFilename = parts[3].replace(/"/g, '').trim();
@@ -930,15 +956,14 @@ function parseOsuFile(osuText) {
                 const column = Math.floor(x * cs / 512);
                 if (column >= 0 && column < cs) {
                     
-                    // 提取单个物件绑定的特定独立音效
                     let hitSampleStr = '';
                     let noteFilename = '';
-                    if ((type & 128) !== 0) { // Hold Note
+                    if ((type & 128) !== 0) { 
                         if (parts.length >= 6) {
                             const extras = parts[5].split(':');
                             hitSampleStr = parts[5].substring(extras[0].length + 1);
                         }
-                    } else { // Tap Note
+                    } else { 
                         if (parts.length >= 6) hitSampleStr = parts[5];
                     }
 
@@ -959,7 +984,6 @@ function parseOsuFile(osuText) {
         }
     }
     
-    // 把故事板/物件中的 Sample 音效绑定到对应时间点的按键（容差为±5ms）
     for (let note of notes) {
         note.samples = [];
         if (note.filename) note.samples.push({ filename: note.filename, volume: 100 });
@@ -1161,28 +1185,32 @@ function quitGame() {
 document.getElementById('back-to-select').onclick = () => quitGame();
 
 window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && gameEngine && gameEngine.isRunning) {
-        if (isMulti) {
-            if (!escHoldTimer) {
-                document.getElementById('esc-progress-overlay').style.display = 'flex';
-                escHoldTimer = setInterval(() => {
-                    escProgress += 5; 
-                    document.getElementById('esc-bar').style.width = escProgress + '%';
-                    if (escProgress >= 100) { quitGame(); clearInterval(escHoldTimer); }
-                }, 50);
-            }
-        } else {
-            if (!gameEngine.isPaused) {
-                gameEngine.pause();
+    // 关键修复：拦截ESC并阻止默认的自动退出全屏，确保按键逻辑走暂定
+    if (e.code === 'Escape') {
+        e.preventDefault();
+        if (gameEngine && gameEngine.isRunning) {
+            if (isMulti) {
+                if (!escHoldTimer) {
+                    document.getElementById('esc-progress-overlay').style.display = 'flex';
+                    escHoldTimer = setInterval(() => {
+                        escProgress += 5; 
+                        document.getElementById('esc-bar').style.width = escProgress + '%';
+                        if (escProgress >= 100) { quitGame(); clearInterval(escHoldTimer); }
+                    }, 50);
+                }
             } else {
-                if (isResuming) {
-                    clearInterval(resumeInterval);
-                    isResuming = false;
-                    document.getElementById('pause-countdown-text').style.display = 'none';
-                    document.getElementById('pause-title').style.display = 'block';
-                    document.getElementById('pause-buttons').style.display = 'flex';
+                if (!gameEngine.isPaused) {
+                    gameEngine.pause();
                 } else {
-                    resumeGame();
+                    if (isResuming) {
+                        clearInterval(resumeInterval);
+                        isResuming = false;
+                        document.getElementById('pause-countdown-text').style.display = 'none';
+                        document.getElementById('pause-title').style.display = 'block';
+                        document.getElementById('pause-buttons').style.display = 'flex';
+                    } else {
+                        resumeGame();
+                    }
                 }
             }
         }

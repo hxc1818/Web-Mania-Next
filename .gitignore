@@ -15,3 +15,4 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+dist/

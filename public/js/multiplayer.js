@@ -6,6 +6,47 @@ let beatmapsCache = [];
 let roomAudio = new Audio();
 let contextTargetPlayerId = null;
 
+// 平滑过渡多人大厅背景音量
+function setRoomAudioVolumeSmoothly(targetVol, duration = 300) {
+    if(!roomAudio) return;
+    if (roomAudio.fadeInterval) clearInterval(roomAudio.fadeInterval);
+    const startVol = roomAudio.volume;
+    const diff = targetVol - startVol;
+    const steps = 15;
+    const stepTime = duration / steps;
+    let step = 0;
+    roomAudio.fadeInterval = setInterval(() => {
+        step++;
+        let v = startVol + (diff * (step / steps));
+        if (v < 0) v = 0; if (v > 1) v = 1;
+        roomAudio.volume = v;
+        if (step >= steps) {
+            clearInterval(roomAudio.fadeInterval);
+            roomAudio.volume = targetVol;
+        }
+    }, stepTime);
+}
+
+function updateRoomAudioVolume() {
+    if (!roomAudio) return;
+    const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+    const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+    const musicVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+    const currentMaster = document.hasFocus() ? mVol : bgVol;
+    
+    let targetVol = currentMaster * musicVol * 0.5;
+    if (targetVol < 0) targetVol = 0;
+    if (targetVol > 1) targetVol = 1;
+    
+    if (roomAudio.paused || roomAudio.currentTime === 0) {
+        roomAudio.volume = targetVol;
+    } else {
+        setRoomAudioVolumeSmoothly(targetVol);
+    }
+}
+window.addEventListener('blur', updateRoomAudioVolume);
+window.addEventListener('focus', updateRoomAudioVolume);
+
 window.addEventListener('DOMContentLoaded', async () => {
     if (!localStorage.getItem('wm_folderPath')) {
         alert('请先在 Single Player 模式下完成初始化设置。');
@@ -201,15 +242,10 @@ function updateRoomUI() {
                 if (roomAudio.src !== srcPath && roomAudio.src !== window.location.origin + srcPath) {
                     roomAudio.src = srcPath;
                     roomAudio.loop = true;
-                    // 读取主音量
-                    const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
-                    const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
-                    roomAudio.volume = mVol * muVol * 0.5;
+                    updateRoomAudioVolume();
                     roomAudio.play().catch(e=>{});
                 } else if (roomAudio.paused) {
-                    const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
-                    const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
-                    roomAudio.volume = mVol * muVol * 0.5;
+                    updateRoomAudioVolume();
                     roomAudio.play().catch(e=>{});
                 }
             }

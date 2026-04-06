@@ -34,14 +34,46 @@ const bgObserver = new IntersectionObserver((entries, obs) => {
     });
 }, { rootMargin: '200px 0px' });
 
+// 平滑调整音量函数
+function setAudioVolumeSmoothly(audioElem, targetVol, duration = 300) {
+    if(!audioElem) return;
+    if (audioElem.fadeInterval) clearInterval(audioElem.fadeInterval);
+    const startVol = audioElem.volume;
+    const diff = targetVol - startVol;
+    const steps = 15;
+    const stepTime = duration / steps;
+    let step = 0;
+    audioElem.fadeInterval = setInterval(() => {
+        step++;
+        let v = startVol + (diff * (step / steps));
+        if (v < 0) v = 0; if (v > 1) v = 1;
+        audioElem.volume = v;
+        if (step >= steps) {
+            clearInterval(audioElem.fadeInterval);
+            audioElem.volume = targetVol;
+        }
+    }, stepTime);
+}
+
+// 关键修复：确保音量为 0 时真正静音，并且加入平滑过渡
 function updatePreviewVolume() {
-    if (previewAudio && !previewAudio.paused) {
+    if (previewAudio) {
         const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
         const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
         const musicVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
         
         const currentMaster = document.hasFocus() ? mVol : bgVol;
-        previewAudio.volume = currentMaster * musicVol * 0.5;
+        let targetVol = currentMaster * musicVol * 0.5;
+        if (targetVol < 0) targetVol = 0;
+        if (targetVol > 1) targetVol = 1;
+        
+        // 如果目前是暂停状态或者刚刚加载完准备播放，则瞬间设好音量防惊吓
+        if (previewAudio.paused || previewAudio.currentTime === 0) {
+            previewAudio.volume = targetVol;
+        } else {
+            // 平滑过渡
+            setAudioVolumeSmoothly(previewAudio, targetVol);
+        }
     }
 }
 
@@ -105,7 +137,7 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 function initSettingsUI() {
-    const bindEl = (id, prop, type = 'value', unit = '', formatter = null) => {
+    const bindEl = (id, prop, type = 'value', unit = '', formatter = null, onChange = null) => {
         const el = document.getElementById(id);
         if(!el) return;
         if(type === 'value') {
@@ -122,6 +154,7 @@ function initSettingsUI() {
                 
                 if (prop === 'renderer' || prop === 'fpsLimit') saveSysConfig();
                 if (prop === 'language') applyTranslations();
+                if (onChange) onChange();
             });
         }
     };
@@ -137,10 +170,10 @@ function initSettingsUI() {
     });
     
     bindEl('st-trackScale', 'trackScale', 'value', 'x', v => parseFloat(v).toFixed(1) + 'x');
-    bindEl('st-masterVol', 'masterVol', 'value', '%');
-    bindEl('st-bgVol', 'bgVol', 'value', '%');
+    bindEl('st-masterVol', 'masterVol', 'value', '%', null, updatePreviewVolume);
+    bindEl('st-bgVol', 'bgVol', 'value', '%', null, updatePreviewVolume);
     bindEl('st-sfxVol', 'sfxVol', 'value', '%');
-    bindEl('st-musicVol', 'musicVol', 'value', '%');
+    bindEl('st-musicVol', 'musicVol', 'value', '%', null, updatePreviewVolume);
     bindEl('st-offset', 'offset', 'value', 'ms');
     bindEl('st-renderer', 'renderer');
     bindEl('st-fpsLimit', 'fpsLimit');
@@ -341,7 +374,8 @@ async function doScan(forceRescan = false) {
             
             mapGroups = {};
             beatmaps.forEach(bm => {
-                const key = `${bm.artist} - ${bm.title}`;
+                // 关键修复：以物理文件夹路径进行合并分组，避免同名不同谱师被合并
+                const key = bm.dirPath;
                 if (!mapGroups[key]) mapGroups[key] = [];
                 mapGroups[key].push(bm);
             });
@@ -505,7 +539,7 @@ async function installSayobotMap(sid, title, element) {
                 beatmaps = scanData.beatmaps || [];
                 mapGroups = {};
                 beatmaps.forEach(bm => {
-                    const key = `${bm.artist} - ${bm.title}`;
+                    const key = bm.dirPath;
                     if (!mapGroups[key]) mapGroups[key] = [];
                     mapGroups[key].push(bm);
                 });
@@ -513,7 +547,7 @@ async function installSayobotMap(sid, title, element) {
                 const targetMap = beatmaps.find(b => b.title === title || (b.title && b.title.includes(title)));
                 if (targetMap) {
                     selectedMap = null; 
-                    const key = `${targetMap.artist} - ${targetMap.title}`;
+                    const key = targetMap.dirPath;
                     const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
                     if (header) {
                         if (!header.parentElement.classList.contains('expanded')) header.click();
@@ -591,7 +625,7 @@ function showContextMenu(e, dirPath) {
 document.getElementById('btn-random-map').onclick = () => {
     if (beatmaps.length === 0) return;
     const rndMap = beatmaps[Math.floor(Math.random() * beatmaps.length)];
-    const key = `${rndMap.artist} - ${rndMap.title}`;
+    const key = rndMap.dirPath;
     const header = document.querySelector(`.map-group-header[data-key="${key.replace(/"/g, '&quot;')}"]`);
     if (header) {
         if (!header.parentElement.classList.contains('expanded')) {
@@ -614,7 +648,7 @@ function renderMapList() {
     bgObserver.disconnect(); 
     mapGroups = {};
     beatmaps.forEach(bm => {
-        const key = `${bm.artist} - ${bm.title}`;
+        const key = bm.dirPath; // 按照物理文件夹分组
         if (!mapGroups[key]) mapGroups[key] = [];
         mapGroups[key].push(bm);
     });
