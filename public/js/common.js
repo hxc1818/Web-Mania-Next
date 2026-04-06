@@ -71,6 +71,7 @@ const defaultSettings = {
     bgVol: 50,
     sfxVol: 100,
     musicVol: 100,
+    enableHitSounds: true,
     autoOffset: false,
     autoKiosk: false,
     uiScale: 1.0,
@@ -88,8 +89,8 @@ for (let i = 1; i <= 18; i++) {
     defaultSettings.laneColors[i] = getDefaultLaneColors(i);
 }
 
-let userSettings = JSON.parse(localStorage.getItem('webmania_settings')) || defaultSettings;
-if (userSettings.language === undefined) userSettings = {...defaultSettings, ...userSettings};
+let userSettings = JSON.parse(localStorage.getItem('webmania_settings')) || {};
+userSettings = { ...defaultSettings, ...userSettings }; 
 
 if (Array.isArray(userSettings.laneColors)) {
     const old = userSettings.laneColors;
@@ -121,12 +122,13 @@ const i18nDict = {
     zh: {
         settings: "设置", cat_general: "常规", open_wizard: "打开设置向导",
         language: "语言", open_songs: "打开songs文件夹", change_songs: "更改songs文件夹位置",
+        rebuild_cache: "重新建立谱面缓存", rebuilding_cache: "正在深度扫描并重建缓存...",
         cat_skin: "皮肤", track_keys: "轨道Key数", cat_input: "输入", config_keys: "配置键位",
         touch_click: "启用触屏点击", cat_ui: "界面", bg_blur: "游玩时背景模糊",
         bg_dim: "游玩时背景暗化", speed: "下落速度", scale: "轨道缩放",
         hit_error: "开启 HitErrorMeter", no_sb: "不播放故事板的视频", cat_audio: "音频",
         device: "播放设备", master_vol: "主音量", bg_vol: "主音量(当窗口失焦时)",
-        sfx_vol: "音效", music_vol: "音乐", audio_offset: "音频延迟",
+        sfx_vol: "音效", music_vol: "音乐", enable_hitsounds: "开启按键音效", audio_offset: "音频延迟",
         use_rec: "使用推荐延迟", auto_offset: "游玩结束后自动校准延迟", cat_gfx: "图像",
         auto_kiosk: "游玩时自动进入Kiosk模式", ui_scale: "UI缩放", renderer: "渲染器 (需重启)",
         desync: "启用desynchronized模式", fps_limit: "帧数限制", thread_mode: "线程模式",
@@ -142,12 +144,13 @@ const i18nDict = {
     en: {
         settings: "Settings", cat_general: "General", open_wizard: "Open Setup Wizard",
         language: "Language", open_songs: "Open Songs Folder", change_songs: "Change Songs Folder",
+        rebuild_cache: "Rebuild Beatmap Cache", rebuilding_cache: "Deep scanning and rebuilding cache...",
         cat_skin: "Skin", track_keys: "Track Keys", cat_input: "Input", config_keys: "Configure Keys",
         touch_click: "Enable Touch Click", cat_ui: "UI", bg_blur: "Background Blur",
         bg_dim: "Background Dim", speed: "Scroll Speed", scale: "Track Scale",
         hit_error: "Enable HitErrorMeter", no_sb: "Disable Storyboard Video", cat_audio: "Audio",
         device: "Playback Device", master_vol: "Master Volume", bg_vol: "Master Vol (Unfocused)",
-        sfx_vol: "SFX Volume", music_vol: "Music Volume", audio_offset: "Audio Offset",
+        sfx_vol: "SFX Volume", music_vol: "Music Volume", enable_hitsounds: "Enable Hit Sounds", audio_offset: "Audio Offset",
         use_rec: "Use Recommended Offset", auto_offset: "Auto Calibrate Offset", cat_gfx: "Graphics",
         auto_kiosk: "Auto Kiosk Mode", ui_scale: "UI Scale", renderer: "Renderer (Restart Req)",
         desync: "Enable Desynchronized Mode", fps_limit: "FPS Limit", thread_mode: "Thread Mode",

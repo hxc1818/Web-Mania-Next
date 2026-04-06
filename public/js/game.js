@@ -176,7 +176,7 @@ function getGrade(acc, failed) {
 }
 
 class GameEngine {
-    constructor(canvas, beatmapData, audioBuffer, audioCtx, stars, onEnd, leaderboard, isSpectator = false) {
+    constructor(canvas, beatmapData, audioBuffer, audioCtx, stars, onEnd, leaderboard, isSpectator = false, loadedHitSounds = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d', { desynchronized: userSettings.desync || false });
         this.notes = beatmapData.notes;
@@ -271,18 +271,25 @@ class GameEngine {
             document.getElementById('hud-rank').style.transformOrigin = 'top right';
         }
 
-        // Setup Volume
+        // Setup Volume & HitSounds
         this.masterGain = this.audioCtx.createGain();
         this.masterGain.connect(this.audioCtx.destination);
         this.musicGain = this.audioCtx.createGain();
         this.musicGain.connect(this.masterGain);
+        
+        // 挂载 Hitsounds 音轨
+        this.hitSounds = loadedHitSounds;
+        this.sfxGain = this.audioCtx.createGain();
+        this.sfxGain.connect(this.masterGain);
 
         const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
         const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
         const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+        const sfxVol = (userSettings.sfxVol !== undefined ? userSettings.sfxVol : 100) / 100;
 
         this.masterGain.gain.value = document.hasFocus() ? mVol : bgVol;
         this.musicGain.gain.value = muVol;
+        this.sfxGain.gain.value = sfxVol; // 动态挂载按键音效音量推杆
 
         window.addEventListener('blur', () => { if(this.masterGain) this.masterGain.gain.value = bgVol; });
         window.addEventListener('focus', () => { if(this.masterGain) this.masterGain.gain.value = mVol; });
@@ -348,6 +355,34 @@ class GameEngine {
     }
 
     getTime() { return ((this.audioCtx.currentTime - this.startTime) * 1000) - (userSettings.offset || 0); }
+
+    // 播放特定样本音频
+    playHitSound(buffer, volumeScale = 1.0) {
+        if (!this.audioCtx || !buffer) return;
+        const source = this.audioCtx.createBufferSource();
+        source.buffer = buffer;
+        const gainNode = this.audioCtx.createGain();
+        gainNode.gain.value = volumeScale;
+        source.connect(gainNode);
+        gainNode.connect(this.sfxGain);
+        source.start(0);
+    }
+
+    // 播放系统默认生成打击音频（如果没有解析出自定义样本的话）
+    playDefaultHitSound() {
+        if (!this.audioCtx) return;
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, this.audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, this.audioCtx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.4, this.audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.05);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(this.audioCtx.currentTime);
+        osc.stop(this.audioCtx.currentTime + 0.05);
+    }
 
     addJudge(type, diff = 0, lane = -1, isTail = false) {
         if(this.state.failed && type === 'miss') return; 
@@ -497,9 +532,7 @@ class GameEngine {
             socket.emit('key_event', { type: 'down', lane, time: now });
         }
 
-        if (this.isSpectator) return; 
-
-        if (!this.isReplay && forcedTime === null) {
+        if (!this.isSpectator && !this.isReplay && forcedTime === null) {
             this.recordedEvents.push({ type: 'down', lane, time: now });
         }
 
@@ -512,7 +545,7 @@ class GameEngine {
             if (Math.abs(diff) <= this.judge.p50 && Math.abs(diff) < minDiff) { minDiff = Math.abs(diff); target = note; }
         }
 
-        if (target) {
+        if (target && !this.isSpectator) {
             const diff = now - target.time;
             const absDiff = Math.abs(diff);
             let j = 'miss';
@@ -520,6 +553,19 @@ class GameEngine {
             target.headJudged = true;
             if (target.type === 'hold' && j !== 'miss') target.isHolding = true;
             this.addJudge(j, diff, lane, false); 
+        }
+
+        // 播放打点对应抓取的击打音效
+        const enableSounds = userSettings.enableHitSounds !== false;
+        if (enableSounds) {
+            if (target && target.samples && target.samples.length > 0) {
+                target.samples.forEach(s => {
+                    const buffer = this.hitSounds[s.filename];
+                    if (buffer) this.playHitSound(buffer, s.volume / 100);
+                });
+            } else {
+                this.playDefaultHitSound();
+            }
         }
     }
 
@@ -562,7 +608,6 @@ class GameEngine {
         if (userSettings.fpsLimit && userSettings.fpsLimit !== 'unlimited') {
             const targets = { 'vsync': 60, '2x': 120, '4x': 240, '8x': 480 };
             const targetFps = targets[userSettings.fpsLimit] || 60;
-            // 引入 1.5ms 的容差（Tolerance），防止由于 requestAnimationFrame 的微小延迟波动导致跑不满预设高帧率
             if (hrTime - this.lastFrameTime < (1000 / targetFps) - 1.5) {
                 requestAnimationFrame(this.loop.bind(this));
                 return;
@@ -805,6 +850,27 @@ async function initGame(isSpectating) {
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
         if (initId !== currentInitId) return;
         
+        // ---------- 抓取并预加载提取的按键音效 ----------
+        const uniqueSamples = new Set();
+        parsed.notes.forEach(n => {
+            if (n.samples) n.samples.forEach(s => uniqueSamples.add(s.filename));
+        });
+        
+        const loadedHitSounds = {};
+        const fetchPromises = Array.from(uniqueSamples).map(async filename => {
+            try {
+                const fullPath = selectedMap.dirPath + '/' + filename;
+                const res = await fetch(`${LOCAL_API_URL}/file?path=${encodeURIComponent(fullPath)}`);
+                if (res.ok) {
+                    const arrayBuffer = await res.arrayBuffer();
+                    const buffer = await audioCtx.decodeAudioData(arrayBuffer);
+                    loadedHitSounds[filename] = buffer;
+                }
+            } catch (e) { console.warn('未能加载自定义音效文件:', filename); }
+        });
+        await Promise.all(fetchPromises);
+        // ------------------------------------------------
+
         const canvas = document.getElementById('game-canvas');
 
         if (gameEngine) gameEngine.quit();
@@ -812,7 +878,7 @@ async function initGame(isSpectating) {
         gameEngine = new GameEngine(
             canvas, parsed, audioBuffer, audioCtx, 
             selectedMap.stars || getFakeStars(selectedMap.version), 
-            onGameEnd, currentLeaderboard, isSpectating
+            onGameEnd, currentLeaderboard, isSpectating, loadedHitSounds // 这里将预加载的音效抛入引擎
         );
         gameEngine.start();
     } catch (e) {
@@ -827,6 +893,7 @@ function parseOsuFile(osuText) {
     const lines = osuText.split(/\r?\n/);
     let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
     const notes = [];
+    const samples = []; // 存储抓取到的故事板/事件音频
     
     for (let line of lines) {
         line = line.trim();
@@ -845,6 +912,14 @@ function parseOsuFile(osuText) {
                 if (parts.length >= 3) {
                     videoPath = parts[2].replace(/"/g, '').trim();
                 }
+            } else if (parts[0] === 'Sample') {
+                // 故事板中的音频记录格式: Sample,time,layer,"filename",volume
+                if (parts.length >= 4) {
+                    const sTime = parseInt(parts[1]);
+                    const sFilename = parts[3].replace(/"/g, '').trim();
+                    const sVol = parts.length >= 5 ? parseInt(parts[4]) : 100;
+                    samples.push({ time: sTime, filename: sFilename, volume: sVol });
+                }
             }
         } 
         else if (section === '[TimingPoints]') { let parts = line.split(','); if (parts.length >= 2) { let bl = parseFloat(parts[1]); if (bl > 0) beatLengths.push(bl); } } 
@@ -854,17 +929,47 @@ function parseOsuFile(osuText) {
                 const x = parseInt(parts[0]), time = parseInt(parts[2]), type = parseInt(parts[3]);
                 const column = Math.floor(x * cs / 512);
                 if (column >= 0 && column < cs) {
+                    
+                    // 提取单个物件绑定的特定独立音效
+                    let hitSampleStr = '';
+                    let noteFilename = '';
+                    if ((type & 128) !== 0) { // Hold Note
+                        if (parts.length >= 6) {
+                            const extras = parts[5].split(':');
+                            hitSampleStr = parts[5].substring(extras[0].length + 1);
+                        }
+                    } else { // Tap Note
+                        if (parts.length >= 6) hitSampleStr = parts[5];
+                    }
+
+                    if (hitSampleStr) {
+                        const hsParts = hitSampleStr.split(':');
+                        if (hsParts.length >= 5 && hsParts[4]) noteFilename = hsParts[4];
+                    }
+
                     if ((type & 128) !== 0) {
                         const endTime = parseInt(parts[5].split(':')[0]);
-                        notes.push({ type: 'hold', time, endTime, column, headJudged: false, tailJudged: false, isHolding: false });
+                        notes.push({ type: 'hold', time, endTime, column, headJudged: false, tailJudged: false, isHolding: false, filename: noteFilename });
                         holdCount++;
                     } else {
-                        notes.push({ type: 'tap', time, column, headJudged: false }); noteCount++;
+                        notes.push({ type: 'tap', time, column, headJudged: false, filename: noteFilename }); noteCount++;
                     }
                 }
             }
         }
     }
+    
+    // 把故事板/物件中的 Sample 音效绑定到对应时间点的按键（容差为±5ms）
+    for (let note of notes) {
+        note.samples = [];
+        if (note.filename) note.samples.push({ filename: note.filename, volume: 100 });
+        for (let s of samples) {
+            if (Math.abs(s.time - note.time) <= 5) {
+                note.samples.push({ filename: s.filename, volume: s.volume });
+            }
+        }
+    }
+
     if (beatLengths.length > 0) bpm = Math.round(60000 / beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop());
     return { notes: notes.sort((a,b) => a.time - b.time), bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath };
 }

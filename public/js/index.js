@@ -34,7 +34,6 @@ const bgObserver = new IntersectionObserver((entries, obs) => {
     });
 }, { rootMargin: '200px 0px' });
 
-// ======================== 全局音频焦点控制与 UI 缩放 ========================
 function updatePreviewVolume() {
     if (previewAudio && !previewAudio.paused) {
         const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
@@ -56,7 +55,6 @@ function applyUIScale() {
         selectScreen.style.zoom = scale;
     }
 }
-// =======================================================================
 
 function handleSearchInput() {
     clearTimeout(searchDebounceTimer);
@@ -175,6 +173,7 @@ function initSettingsUI() {
     initSwitch('st-desync', 'desync');
     initSwitch('st-showFps', 'showFps');
     initSwitch('st-hwAccel', 'hwAccel');
+    initSwitch('st-enableHitSounds', 'enableHitSounds');
 
     const kSel = document.getElementById('st-skin-keys');
     kSel.value = '4';
@@ -198,7 +197,8 @@ function toggleSwitch(id) {
         'st-touchClick': 'touchClick', 'st-hitErrorMeter': 'hitErrorMeter',
         'st-noStoryboard': 'noStoryboard', 'st-autoOffset': 'autoOffset',
         'st-autoKiosk': 'autoKiosk', 'st-desync': 'desync',
-        'st-showFps': 'showFps', 'st-hwAccel': 'hwAccel'
+        'st-showFps': 'showFps', 'st-hwAccel': 'hwAccel',
+        'st-enableHitSounds': 'enableHitSounds'
     };
     if (propMap[id]) {
         userSettings[propMap[id]] = isOn;
@@ -233,6 +233,16 @@ function closeSettings() {
     document.getElementById('settings-sidebar').classList.remove('show');
     document.getElementById('sidebar-close-zone').classList.remove('show');
 }
+
+window.triggerRebuildCache = function() {
+    closeSettings();
+    const list = document.getElementById('map-list');
+    if (list) {
+        list.innerHTML = '<div style="color:#ef4444; text-align:center; padding: 50px; font-weight: 600;" data-i18n="rebuilding_cache">正在深度扫描并重建缓存...</div>';
+        applyTranslations();
+    }
+    doScan(true);
+};
 
 async function populateAudioDevices() {
     try {
@@ -696,7 +706,6 @@ function renderMapList() {
         const diffListInner = document.createElement('div');
         diffListInner.className = 'map-diff-list-inner';
 
-        // 核心优化：彻底移除懒加载逻辑，由于 DOM 生成本身足够快，避免复杂的状态判断
         group.forEach(bm => {
             const stars = bm.stars || getFakeStars(bm.version);
             const starColor = getStarColor(stars);
@@ -812,7 +821,6 @@ function playReplay(scoreId) {
     setTimeout(() => { window.location.href = 'game.html'; }, 1000);
 }
 
-// 核心优化：避免同一个组的背景重复触发渲染（造成巨大卡顿的核心原因）
 async function selectMap(bm, element) {
     if (selectedMap && selectedMap.id === bm.id) { return startGame(); }
     document.querySelectorAll('.map-diff-item').forEach(el => el.classList.remove('selected'));
@@ -831,8 +839,6 @@ async function selectMap(bm, element) {
         const newBgUrl = `url("${LOCAL_API_URL}/file?path=${encodeURIComponent(bm.bgPath)}")`;
         const oldBg = document.getElementById('select-bg');
         
-        // 只有当背景图和原来不同的时候，才执行平滑切换的图层交叉淡入淡出。
-        // 这彻底解决了同一首音乐的不同难度间切换导致严重掉帧的问题！
         const currentBgStyle = oldBg ? oldBg.style.backgroundImage : '';
         if (!currentBgStyle.includes(encodeURIComponent(bm.bgPath))) {
             const selectScreen = document.getElementById('select-screen');
@@ -841,16 +847,15 @@ async function selectMap(bm, element) {
             newBg.className = 'select-bg';
             newBg.style.backgroundImage = newBgUrl;
             newBg.style.opacity = 0;
-            newBg.id = 'select-bg'; // 新图层接管 ID
+            newBg.id = 'select-bg'; 
             
             if (oldBg) {
-                oldBg.removeAttribute('id'); // 取消老背景的 ID
+                oldBg.removeAttribute('id'); 
                 selectScreen.insertBefore(newBg, oldBg.nextSibling);
             } else {
                 selectScreen.insertBefore(newBg, selectScreen.firstChild);
             }
             
-            // 强制触发一次绘制，以便执行透明度渐变动画
             void newBg.offsetWidth;
             newBg.style.opacity = 1;
             
