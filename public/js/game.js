@@ -31,7 +31,6 @@ let retryHoldTimer = null;
 let retryProgress = 0;
 
 window.onload = async () => {
-    // 防止幽灵问题 👻
     sessionStorage.removeItem('webmania_is_navigating_to_game');
 
     const mapData = sessionStorage.getItem('webmania_current_map');
@@ -68,7 +67,6 @@ window.onload = async () => {
             socket.emit('join_multi', { uid: myUid, username: localStorage.getItem('wm_username') });
             socket.emit('join_room', { roomId: roomInfo.id });
         } else {
-            // 修复：观战的 iframe 发送专属身份，避免在服务端抢占大厅人数限制 👀
             socket.emit('join_multi', { uid: 'spec_' + Math.random().toString(36).substr(2,9), username: 'SpectatorViewer' });
             socket.emit('join_room', { roomId: roomInfo.id, isSpectatorClient: true });
         }
@@ -79,16 +77,16 @@ window.onload = async () => {
             else if (specClientUid === data.uid) updateSpecClientHUD(data);
         });
 
+        // 🌟 观战系统重构：直接将远端的确定性事件推入时间轴缓冲区
         socket.on('room_judge_event', data => {
             if (specClientUid && specClientUid === data.uid && gameEngine) {
-                gameEngine.applyRemoteJudge(data);
+                gameEngine.queueSpectatorEvent({ eventType: 'judge', ...data });
             }
         });
 
         socket.on('room_key_event', data => {
             if (specClientUid && specClientUid === data.uid && gameEngine) {
-                if (data.type === 'down') gameEngine.onKeyDown(data.lane, gameEngine.getTime());
-                else if (data.type === 'up') gameEngine.onKeyUp(data.lane, gameEngine.getTime());
+                gameEngine.queueSpectatorEvent({ eventType: 'key', action: data.type, lane: data.lane, time: data.time });
             }
         });
 
@@ -116,7 +114,6 @@ window.onload = async () => {
             `).join('');
         });
 
-        // 强行结束信号接收
         socket.on('force_game_ended', () => {
             if (gameEngine) gameEngine.state.failed = true;
             quitGame();
@@ -144,7 +141,6 @@ window.onload = async () => {
         if (players.length === 0) {
             document.getElementById('spectator-grid').innerHTML = '<div style="color:#aaa; margin: auto; font-size:20px; font-weight:600;">当前没有玩家在游戏中。</div>';
         } else {
-            // 修复：添加 allow="autoplay" 属性，防止由于限制导致音频和时间轴冻结 🎵
             document.getElementById('spectator-grid').innerHTML = players.map(p => 
                 `<iframe class="spec-iframe" src="game.html?spectate_client=${p.uid}" allow="autoplay"></iframe>`
             ).join('');
@@ -158,9 +154,10 @@ window.onload = async () => {
 };
 
 function updateSpecClientHUD(data) {
-    document.getElementById('hud-score').innerText = data.score.toString().padStart(7, '0');
-    document.getElementById('hud-combo').innerText = data.combo + 'x';
-    if(data.failed) document.getElementById('game-canvas').style.filter = 'grayscale(1)';
+    if(data.failed && gameEngine && !gameEngine.state.failed) {
+        gameEngine.state.failed = true;
+        document.getElementById('game-canvas').style.filter = 'grayscale(1)';
+    }
 }
 
 function updateLeaderboard() {
@@ -199,6 +196,12 @@ class GameEngine {
         
         this.isSpectator = isSpectator; 
         this.isReplay = isReplayMode; 
+        
+        // 🌟 核心修改：设定4秒的超稳健缓冲区！
+        this.spectatorDelay = this.isSpectator ? 4000 : 0; 
+        
+        this.remoteKeyEvents = this.isReplay ? [...replayData.events] : [];
+        this.spectatorEvents = []; // 存储带时间戳的确定性网络事件序列
 
         this.od = beatmapData.od !== undefined ? beatmapData.od : 5;
         this.judge = {
@@ -232,10 +235,7 @@ class GameEngine {
         this.startTime = 0;
         this.fallbackStartTime = 0;
 
-        // 关键修复：用于纯享版自动触发打点音效的游标
         this.nextSoundNoteIndex = 0;
-
-        this.remoteKeyEvents = this.isReplay ? [...replayData.events] : []; 
         this.recordedEvents = []; 
 
         this.state = {
@@ -286,13 +286,11 @@ class GameEngine {
             document.getElementById('hud-rank').style.transformOrigin = 'top right';
         }
 
-        // Setup Volume & HitSounds
         this.masterGain = this.audioCtx.createGain();
         this.masterGain.connect(this.audioCtx.destination);
         this.musicGain = this.audioCtx.createGain();
         this.musicGain.connect(this.masterGain);
         
-        // 挂载 Hitsounds 音轨
         this.hitSounds = loadedHitSounds;
         this.sfxGain = this.audioCtx.createGain();
         this.sfxGain.connect(this.masterGain);
@@ -306,7 +304,6 @@ class GameEngine {
         this.musicGain.gain.value = muVol;
         this.sfxGain.gain.value = sfxVol;
 
-        // 关键修复：窗口失焦和聚焦时的平滑音量过渡机制
         this.onBlur = () => {
             const vol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
             if (this.masterGain && this.audioCtx.state === 'running') {
@@ -328,22 +325,39 @@ class GameEngine {
         window.addEventListener('focus', this.onFocus);
     }
 
+    // 🌟 将网络数据加入排序缓冲队列
+    queueSpectatorEvent(evt) {
+        this.spectatorEvents.push(evt);
+        this.spectatorEvents.sort((a, b) => a.time - b.time);
+    }
+
     start() {
         this.audioSource = this.audioCtx.createBufferSource();
         this.audioSource.buffer = this.audioBuffer;
         this.audioSource.connect(this.musicGain);
         
-        this.fallbackStartTime = performance.now();
+        // 🌟 观战端推迟音频和时间轴起点，自然生成4秒安全缓冲区
+        const delaySeconds = this.spectatorDelay / 1000;
+        this.fallbackStartTime = performance.now() + this.spectatorDelay;
         
-        // 修复：观战的 iframe 可能在浏览器策略下自动阻止播放音频 🎧
         if (this.audioCtx.state === 'suspended') {
             this.audioCtx.resume().catch(e => console.warn("Audio autoplay prevented", e));
         }
 
-        this.startTime = this.audioCtx.currentTime; // 被挂起时通常是 0
-        this.audioSource.start(0);
+        this.startTime = this.audioCtx.currentTime + delaySeconds; 
+        this.audioSource.start(this.startTime, 0);
         this.isRunning = true;
         this.isPaused = false;
+
+        // 如果包含视频背景，也必须推迟等量时间开始播放
+        if (window.videoPlayer) {
+            if (this.spectatorDelay > 0) {
+                setTimeout(() => { if (this.isRunning && !this.isPaused) window.videoPlayer.play(); }, this.spectatorDelay);
+            } else {
+                window.videoPlayer.play();
+            }
+        }
+
         requestAnimationFrame(this.loop.bind(this));
     }
 
@@ -396,7 +410,6 @@ class GameEngine {
         });
     }
 
-    // 修复：给没有授权播放音频的观战端兜底时间轴计算 🕰️
     getTime() { 
         let t = 0;
         if (this.audioCtx.state === 'running') {
@@ -433,6 +446,7 @@ class GameEngine {
         osc.stop(this.audioCtx.currentTime + 0.05);
     }
 
+    // 只有主玩家才会调用的判定方法
     addJudge(type, diff = 0, lane = -1, isTail = false) {
         if(this.state.failed && type === 'miss') return; 
         
@@ -450,8 +464,8 @@ class GameEngine {
         
         if (this.state.hp <= 0 && !this.state.failed) {
             this.state.failed = true;
-            if (!this.isSpectator) document.getElementById('game-canvas').style.filter = 'grayscale(1)';
-            if (!isMulti && !this.isReplay) {
+            document.getElementById('game-canvas').style.filter = 'grayscale(1)';
+            if (!isMulti && !this.isReplay && !this.isSpectator) {
                 this.endGame(); return; 
             }
         }
@@ -459,6 +473,7 @@ class GameEngine {
         this.addEffect(type);
 
         if (!this.isSpectator && !this.isReplay && isMulti && socket) {
+            // 🌟 在这里，房主会把一切都算好然后发送给其他人
             socket.emit('judge_event', {
                 judgeType: type, diff, lane, isTail, time: this.getTime(),
                 hp: this.state.hp, combo: this.state.combo, maxCombo: this.state.maxCombo,
@@ -466,8 +481,6 @@ class GameEngine {
                 stats: this.state.stats
             });
         }
-
-        if (this.isSpectator) return; 
 
         let totalJudged = this.state.stats.max + this.state.stats.p300 + this.state.stats.p200 + this.state.stats.p100 + this.state.stats.p50 + this.state.stats.miss;
         let currentBase = this.state.stats.max * SCORES.max + this.state.stats.p300 * SCORES.p300 + this.state.stats.p200 * SCORES.p200 + this.state.stats.p100 * SCORES.p100 + this.state.stats.p50 * SCORES.p50;
@@ -501,6 +514,7 @@ class GameEngine {
         this.updateHUD();
     }
 
+    // 🌟 观战专用：接收房主的确切判定，直接硬核覆写状态（消除计算差异）
     applyRemoteJudge(data) {
         this.state.hp = data.hp;
         this.state.combo = data.combo;
@@ -518,6 +532,7 @@ class GameEngine {
         this.addEffect(data.judgeType);
         this.updateHUD();
 
+        // 消除音符实体（防止其在画面上继续下落）
         if (data.lane >= 0) {
             let target = null, minDiff = Infinity;
             for (let i = 0; i < this.notes.length; i++) {
@@ -557,6 +572,9 @@ class GameEngine {
         this.hudAcc.innerText = this.state.acc.toFixed(2) + '%';
         this.hudPP.innerText = this.state.currentPP;
         this.hudUR.innerText = this.calculateUR().toFixed(2);
+        
+        document.getElementById('hud-combo').innerText = this.state.combo + 'x';
+        
         if (!isMulti && !this.isReplay && this.leaderboard.length > 0 && this.state.scoreV2 > 0) {
             let rank = 1; for (let s of this.leaderboard) { if (this.state.scoreV2 < s._realScore) rank++; }
             this.hudRank.innerText = '#' + rank;
@@ -594,7 +612,7 @@ class GameEngine {
             if (Math.abs(diff) <= this.judge.p50 && Math.abs(diff) < minDiff) { minDiff = Math.abs(diff); target = note; }
         }
 
-        if (target && !this.isSpectator) {
+        if (target && !this.isSpectator) { 
             const diff = now - target.time;
             const absDiff = Math.abs(diff);
             let j = 'miss';
@@ -606,16 +624,14 @@ class GameEngine {
     }
 
     onKeyUp(lane, forcedTime = null) {
-        if (!this.isRunning || this.isPaused || lane >= this.laneCount) return;
+        if (!this.isRunning || this.isPaused || lane >= this.laneCount || this.isSpectator) return;
 
         this.keys[lane] = false;
         const now = forcedTime !== null ? forcedTime : this.getTime();
 
-        if (!this.isSpectator && !this.isReplay && isMulti && socket) {
+        if (!this.isReplay && isMulti && socket) {
             socket.emit('key_event', { type: 'up', lane, time: now });
         }
-
-        if (this.isSpectator) return; 
 
         if (!this.isReplay && forcedTime === null) {
             this.recordedEvents.push({ type: 'up', lane, time: now });
@@ -678,6 +694,7 @@ class GameEngine {
 
         if (now > this.lastNoteTime + 1500) { this.endGame(); return; }
 
+        // 🌟 本地回放处理（需自行计算判定）
         if (this.isReplay) {
             while (this.remoteKeyEvents.length > 0 && this.remoteKeyEvents[0].time <= now) {
                 const evt = this.remoteKeyEvents.shift();
@@ -686,7 +703,20 @@ class GameEngine {
             }
         }
 
-        // 关键修复：纯享版自动打击音效，由时间轴全自动控制
+        // 🌟 核心修改：网络观战端仅充当“播放器”，消耗缓存事件，无脑执行
+        if (this.isSpectator) {
+            while (this.spectatorEvents.length > 0 && this.spectatorEvents[0].time <= now) {
+                const evt = this.spectatorEvents.shift();
+                if (evt.eventType === 'key') {
+                    // 仅渲染按键闪烁光轨效果，无任何判定绑定
+                    this.keys[evt.lane] = (evt.action === 'down');
+                } else if (evt.eventType === 'judge') {
+                    // 完全依赖房主发来的确切判定进行销毁和计分
+                    this.applyRemoteJudge(evt);
+                }
+            }
+        }
+
         const enableSounds = userSettings.enableHitSounds !== false;
         if (enableSounds && !this.isPaused && this.isRunning) {
             while (this.nextSoundNoteIndex < this.notes.length && now >= this.notes[this.nextSoundNoteIndex].time) {
@@ -706,8 +736,9 @@ class GameEngine {
             }
         }
 
-        const missThreshold = (this.isSpectator || this.isReplay) ? this.judge.p50 + 400 : this.judge.p50;
+        const missThreshold = this.isReplay ? this.judge.p50 + 400 : this.judge.p50;
 
+        // 🌟 观战端彻底屏蔽本地自动 MISS 机制！一切交给远程裁判
         if (!this.isSpectator) {
             for (let i = 0; i < this.notes.length; i++) {
                 const note = this.notes[i];
@@ -881,7 +912,7 @@ async function initGame(isSpectating) {
                 canvas: videoCanvas,
                 source: FetchStreamSource, 
                 loop: true,
-                autoplay: true,
+                autoplay: false, // 统一交由引擎的 start() 配合延迟启动
                 audio: false 
             });
         } else {
@@ -1272,7 +1303,8 @@ window.addEventListener('keydown', (e) => {
     }
 
     if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning) { 
-        if (!e.repeat && !isReplayMode) gameEngine.onKeyDown(KEY_MAP[e.code]); 
+        // 观战模式下完全屏蔽本地按键，只通过事件处理！
+        if (!e.repeat && !isReplayMode && !gameEngine.isSpectator) gameEngine.onKeyDown(KEY_MAP[e.code]); 
     }
 });
 
@@ -1293,7 +1325,7 @@ window.addEventListener('keyup', (e) => {
             document.getElementById('retry-bar').style.width = '0%';
         }
     }
-    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode) {
+    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode && !gameEngine.isSpectator) {
         gameEngine.onKeyUp(KEY_MAP[e.code]); 
     }
 });
@@ -1301,7 +1333,7 @@ window.addEventListener('keyup', (e) => {
 if (userSettings.touchClick) {
     const canvas = document.getElementById('game-canvas');
     canvas.addEventListener('touchstart', (e) => {
-        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode) return;
+        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
         for (let i = 0; i < e.changedTouches.length; i++) {
@@ -1319,7 +1351,7 @@ if (userSettings.touchClick) {
     }, {passive: false});
 
     canvas.addEventListener('touchend', (e) => {
-        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode) return;
+        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
         e.preventDefault();
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches[i];
