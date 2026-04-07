@@ -56,26 +56,30 @@ function setAudioVolumeSmoothly(audioElem, targetVol, duration = 300) {
     }, stepTime);
 }
 
-// 关键修复：确保音量为 0 时真正静音，并且加入平滑过渡
+// 关键修复：确保音量为 0 时真正静音，并且加入平滑过渡，增加防抖防止误触发失焦BUG
+let volTimeout;
 function updatePreviewVolume() {
-    if (previewAudio) {
-        const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
-        const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
-        const musicVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
-        
-        const currentMaster = document.hasFocus() ? mVol : bgVol;
-        let targetVol = currentMaster * musicVol * 0.5;
-        if (targetVol < 0) targetVol = 0;
-        if (targetVol > 1) targetVol = 1;
-        
-        // 如果目前是暂停状态或者刚刚加载完准备播放，则瞬间设好音量防惊吓
-        if (previewAudio.paused || previewAudio.currentTime === 0) {
-            previewAudio.volume = targetVol;
-        } else {
-            // 平滑过渡
-            setAudioVolumeSmoothly(previewAudio, targetVol);
+    clearTimeout(volTimeout);
+    volTimeout = setTimeout(() => {
+        if (previewAudio) {
+            const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+            const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+            const musicVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+            
+            const currentMaster = document.hasFocus() ? mVol : bgVol;
+            let targetVol = currentMaster * musicVol * 0.5;
+            if (targetVol < 0) targetVol = 0;
+            if (targetVol > 1) targetVol = 1;
+            
+            // 如果目前是暂停状态或者刚刚加载完准备播放，则瞬间设好音量防惊吓
+            if (previewAudio.paused || previewAudio.currentTime === 0) {
+                previewAudio.volume = targetVol;
+            } else {
+                // 平滑过渡
+                setAudioVolumeSmoothly(previewAudio, targetVol);
+            }
         }
-    }
+    }, 150); // 延迟检测，滤除DOM焦点闪烁
 }
 
 window.addEventListener('blur', updatePreviewVolume);

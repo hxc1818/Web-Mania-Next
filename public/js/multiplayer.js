@@ -32,23 +32,28 @@ function setRoomAudioVolumeSmoothly(targetVol, duration = 300) {
     }, stepTime);
 }
 
+let roomVolTimeout;
 function updateRoomAudioVolume() {
-    if (!roomAudio) return;
-    const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
-    const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
-    const musicVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
-    const currentMaster = document.hasFocus() ? mVol : bgVol;
-    
-    let targetVol = currentMaster * musicVol * 0.5;
-    if (targetVol < 0) targetVol = 0;
-    if (targetVol > 1) targetVol = 1;
-    
-    if (roomAudio.paused || roomAudio.currentTime === 0) {
-        roomAudio.volume = targetVol;
-    } else {
-        setRoomAudioVolumeSmoothly(targetVol);
-    }
+    clearTimeout(roomVolTimeout);
+    roomVolTimeout = setTimeout(() => {
+        if (!roomAudio) return;
+        const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+        const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+        const musicVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+        const currentMaster = document.hasFocus() ? mVol : bgVol;
+        
+        let targetVol = currentMaster * musicVol * 0.5;
+        if (targetVol < 0) targetVol = 0;
+        if (targetVol > 1) targetVol = 1;
+        
+        if (roomAudio.paused || roomAudio.currentTime === 0) {
+            roomAudio.volume = targetVol;
+        } else {
+            setRoomAudioVolumeSmoothly(targetVol);
+        }
+    }, 150); // 增加防抖延迟
 }
+
 window.addEventListener('blur', updateRoomAudioVolume);
 window.addEventListener('focus', updateRoomAudioVolume);
 

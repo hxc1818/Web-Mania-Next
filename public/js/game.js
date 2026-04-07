@@ -304,22 +304,26 @@ class GameEngine {
         this.musicGain.gain.value = muVol;
         this.sfxGain.gain.value = sfxVol;
 
-        this.onBlur = () => {
-            const vol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
-            if (this.masterGain && this.audioCtx.state === 'running') {
-                this.masterGain.gain.setTargetAtTime(vol, this.audioCtx.currentTime, 0.2);
-            } else if (this.masterGain) {
-                this.masterGain.gain.value = vol;
-            }
+        // 增加延迟和hasFocus判定，避免DOM元素切换引发的假失焦BUG
+        let volTimeout;
+        const checkVolume = () => {
+            clearTimeout(volTimeout);
+            volTimeout = setTimeout(() => {
+                const hasFocus = document.hasFocus();
+                const targetVol = (hasFocus 
+                    ? (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) 
+                    : (userSettings.bgVol !== undefined ? userSettings.bgVol : 50)) / 100;
+
+                if (this.masterGain && this.audioCtx.state === 'running') {
+                    this.masterGain.gain.setTargetAtTime(targetVol, this.audioCtx.currentTime, 0.2);
+                } else if (this.masterGain) {
+                    this.masterGain.gain.value = targetVol;
+                }
+            }, 150); // 防抖 150 毫秒
         };
-        this.onFocus = () => {
-            const vol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
-            if (this.masterGain && this.audioCtx.state === 'running') {
-                this.masterGain.gain.setTargetAtTime(vol, this.audioCtx.currentTime, 0.2);
-            } else if (this.masterGain) {
-                this.masterGain.gain.value = vol;
-            }
-        };
+
+        this.onBlur = checkVolume;
+        this.onFocus = checkVolume;
 
         window.addEventListener('blur', this.onBlur);
         window.addEventListener('focus', this.onFocus);
