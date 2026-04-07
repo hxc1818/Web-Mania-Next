@@ -18,59 +18,62 @@
     <div id="multi-login-screen" class="screen active">
         <div class="setup-box">
             <div class="setup-title">多人游戏登录</div>
-            <div class="setup-desc">输入昵称加入大厅</div>
-            <div id="login-error" style="color:#ef4444; margin-bottom: 10px; font-weight: bold; display: none;"></div>
+            <div class="setup-desc">输入您的游戏昵称以进入多人大厅</div>
+            <div id="login-error" style="color:#ef4444; margin-bottom: 15px; font-weight: bold; display: none; background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px;"></div>
             <input type="text" id="username-input" class="setup-input" placeholder="例如: RhythmMaster">
-            <button class="setup-btn" style="width: 100%;" onclick="joinMultiLobby()">连接</button>
+            <button class="setup-btn" style="width: 100%; margin-top: 10px; font-size: 16px; padding: 14px;" onclick="joinMultiLobby()">连接大厅</button>
         </div>
     </div>
 
     <div id="multi-lobby-screen" class="screen">
-        <div class="top-btn" style="right: 40px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6;" onclick="showCreateRoomModal()">创建房间</div>
+        <div class="top-btn" style="right: 40px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; padding: 12px 24px; font-size: 15px;" onclick="showCreateRoomModal()">+ 创建房间</div>
         <div class="multi-layout">
             <div class="panel" style="flex: 1;">
-                <h2>在线房间</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(255,255,255,0.05); padding-bottom: 15px; margin-bottom: 20px;">
+                    <h2 style="border: none; padding: 0; margin: 0; font-size: 24px;">在线房间</h2>
+                    <div style="font-size: 14px; color: #aaa;">选择一个房间加入战斗</div>
+                </div>
                 <div id="room-list" style="flex: 1; overflow-y: auto;"></div>
             </div>
         </div>
     </div>
 
     <div id="multi-room-screen" class="screen">
-        <div class="top-btn" style="left: 40px; background: rgba(239, 68, 68, 0.1); color: #ef4444;" onclick="leaveRoom()">退出房间</div>
+        <div class="top-btn" style="left: 40px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); padding: 10px 20px;" onclick="leaveRoom()">退出房间</div>
         <div class="multi-layout">
             
             <div class="panel" style="flex: 1.2;">
                 <h2>谱面队列</h2>
-                <div id="map-queue-list" style="flex: 1; overflow-y: auto; margin-bottom: 15px;"></div>
+                <div id="map-queue-list" style="flex: 1; overflow-y: auto; margin-bottom: 20px;"></div>
                 
-                <div id="drop-zone" class="drop-zone" style="height: 50px; margin-bottom: 10px; border-radius: 8px; border: 2px dashed rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; color: #888; cursor: pointer; font-size: 13px; font-weight: 600; transition: 0.2s;">
-                    将 .osz 文件拖至此处添加谱面
+                <div id="drop-zone" class="drop-zone">
+                    将 .osz 文件拖至此处快速导入
                 </div>
-                <div id="upload-status" style="text-align: center; color:#60a5fa; height: 16px; font-size: 12px;"></div>
+                <div id="upload-status" style="text-align: center; color:#60a5fa; height: 20px; font-size: 13px; font-weight: 600; margin-bottom: 10px;"></div>
 
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button class="setup-btn" style="flex: 1; background: rgba(255,255,255,0.1); color: #fff;" onclick="openMultiMapSelector()">添加本地谱面</button>
+                <div style="display: flex; gap: 12px; margin-bottom: 20px;">
+                    <button class="setup-btn" style="flex: 1; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.1);" onclick="openMultiMapSelector()">从本地库添加谱面</button>
                 </div>
 
-                <div style="display: flex; gap: 15px; margin-top: auto;">
-                    <button class="setup-btn" id="btn-spectate" style="flex: 1; background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #ccc;">观战</button>
-                    <button class="setup-btn" id="btn-action" style="flex: 2; background: #10b981;">准备</button>
+                <div style="display: flex; gap: 16px; margin-top: auto;">
+                    <button class="setup-btn" id="btn-spectate" style="flex: 1; background: transparent; border: 2px solid rgba(255,255,255,0.15); color: #ddd; font-size: 16px;">观战</button>
+                    <button class="setup-btn" id="btn-action" style="flex: 2; background: #10b981; font-size: 18px; font-weight: 800; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);">准备</button>
                 </div>
             </div>
             
             <div class="panel" style="flex: 1;">
                 <h2>玩家列表</h2>
-                <div id="player-list" style="flex: 1; overflow-y: auto;"></div>
+                <div id="player-list" style="flex: 1; overflow-y: auto; padding-right: 8px;"></div>
             </div>
 
-            <div class="panel" style="flex: 1.2; padding: 0;">
-                <div style="padding: 20px 20px 0 20px;">
-                    <h2>聊天</h2>
+            <div class="panel" style="flex: 1.2; padding: 0; background: rgba(26,26,36,0.85);">
+                <div style="padding: 24px 24px 0 24px;">
+                    <h2>聊天频道</h2>
                 </div>
                 <div class="chat-container">
                     <div id="chat-messages" class="chat-messages"></div>
                     <div class="chat-input-area">
-                        <input type="text" id="chat-input" class="chat-input" placeholder="输入消息..." onkeypress="if(event.key==='Enter') sendChat()">
+                        <input type="text" id="chat-input" class="chat-input" placeholder="输入消息开始交流..." onkeypress="if(event.key==='Enter') sendChat()">
                         <button class="chat-send-btn" onclick="sendChat()">发送</button>
                     </div>
                 </div>
@@ -81,38 +84,43 @@
     <!-- 创建房间弹窗 -->
     <div id="create-room-overlay">
         <div class="modal-box">
-            <div class="modal-title">创建房间</div>
-            <input type="text" id="new-room-name" class="setup-input" placeholder="房间名称">
-            <input type="password" id="new-room-pass" class="setup-input" placeholder="密码 (选填)">
-            <input type="number" id="new-room-max" class="setup-input" placeholder="最大人数 (2-32)" min="2" max="32" value="8">
-            <button class="setup-btn" style="background: rgba(255,255,255,0.1); color: #ddd;" onclick="openCreateRoomMapSelector()">选择首张谱面 (必选)</button>
-            <div id="create-room-map-name" style="font-size: 13px; color: #34d399; text-align: center;">未选择</div>
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button class="setup-btn" style="flex:1; background: #4b5563;" onclick="closeCreateRoomModal()">取消</button>
-                <button class="setup-btn" style="flex:1;" onclick="createRoom()">确认创建</button>
+            <div class="modal-title">创立新房间</div>
+            <input type="text" id="new-room-name" class="setup-input" placeholder="房间名称 (必填)">
+            <input type="password" id="new-room-pass" class="setup-input" placeholder="房间密码 (选填，留空则为公开)">
+            <input type="number" id="new-room-max" class="setup-input" placeholder="最大人数限制 (2-32)" min="2" max="32" value="8">
+            
+            <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.2); text-align: center;">
+                <div id="create-room-map-name" style="font-size: 14px; font-weight: bold; color: #34d399; margin-bottom: 10px;">尚未选择初始谱面</div>
+                <button class="setup-btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; padding: 8px 16px; font-size: 13px;" onclick="openCreateRoomMapSelector()">浏览本地曲库</button>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 15px;">
+                <button class="setup-btn" style="flex:1; background: rgba(255,255,255,0.1); color: #ccc;" onclick="closeCreateRoomModal()">取消</button>
+                <button class="setup-btn" style="flex:2; background: #3b82f6; font-weight: bold;" onclick="createRoom()">确认创建</button>
             </div>
         </div>
     </div>
 
     <!-- 密码输入弹窗 -->
     <div id="password-overlay">
-        <div class="modal-box">
-            <div class="modal-title">加入加密房间</div>
-            <input type="password" id="join-room-pass" class="setup-input" placeholder="请输入密码">
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button class="setup-btn" style="flex:1; background: #4b5563;" onclick="closePasswordModal()">取消</button>
-                <button class="setup-btn" style="flex:1;" onclick="submitJoinPassword()">确定</button>
+        <div class="modal-box" style="width: 400px;">
+            <div class="modal-title">访问受限</div>
+            <div style="text-align: center; color: #aaa; font-size: 14px; margin-bottom: 10px;">该房间已被房主加密，请输入通行密码。</div>
+            <input type="password" id="join-room-pass" class="setup-input" placeholder="请输入密码..." style="text-align: center; font-size: 16px; letter-spacing: 2px;">
+            <div style="display: flex; gap: 12px; margin-top: 10px;">
+                <button class="setup-btn" style="flex:1; background: rgba(255,255,255,0.1); color: #ccc;" onclick="closePasswordModal()">取消</button>
+                <button class="setup-btn" style="flex:1; background: #10b981; font-weight: bold;" onclick="submitJoinPassword()">验证并加入</button>
             </div>
         </div>
     </div>
 
     <div id="select-overlay">
-        <div class="overlay-close" onclick="closeMapSelector()">× 取消</div>
+        <div class="overlay-close" onclick="closeMapSelector()">关闭选择器</div>
         <iframe class="select-iframe" id="select-iframe"></iframe>
     </div>
 
     <div id="context-menu">
-        <div class="cm-item" id="cm-kick" style="color: #fca5a5;">踢出玩家</div>
+        <div class="cm-item" id="cm-kick" style="color: #fca5a5; font-weight: bold;">将玩家移出房间</div>
     </div>
 
     <script src="js/common.js"></script>
