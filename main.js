@@ -55,12 +55,8 @@ async function createWindow() {
     winControl.on('set-kiosk', (val) => {
         if (mainWindow) {
             mainWindow.setKiosk(val);
-            if (val) {
-                // 进入 Kiosk 时，全局强绑 Win 键，防止误触弹出开始菜单
-                globalShortcut.register('Super', () => { console.log('Win key blocked in Kiosk'); });
-            } else {
-                globalShortcut.unregister('Super');
-            }
+            // 修复：移除了引发报错的 globalShortcut.register('Super') 
+            // 因为 Super 是修饰键，Electron 不允许单独作为主键注册
         }
     });
 
