@@ -77,7 +77,6 @@ window.onload = async () => {
             else if (specClientUid === data.uid) updateSpecClientHUD(data);
         });
 
-        // 🌟 观战系统重构：直接将远端的确定性事件推入时间轴缓冲区
         socket.on('room_judge_event', data => {
             if (specClientUid && specClientUid === data.uid && gameEngine) {
                 gameEngine.queueSpectatorEvent({ eventType: 'judge', ...data });
@@ -197,11 +196,30 @@ class GameEngine {
         this.isSpectator = isSpectator; 
         this.isReplay = isReplayMode; 
         
-        // 🌟 核心修改：设定4秒的超稳健缓冲区！
         this.spectatorDelay = this.isSpectator ? 4000 : 0; 
         
         this.remoteKeyEvents = this.isReplay ? [...replayData.events] : [];
-        this.spectatorEvents = []; // 存储带时间戳的确定性网络事件序列
+        this.spectatorEvents = []; 
+
+        this.breaks = beatmapData.breaks || [];
+
+        if (this.breaks.length === 0 && this.notes.length > 0) {
+            if (this.notes[0].time > 5000) {
+                this.breaks.push({ startTime: 1000, endTime: this.notes[0].time - 1500 });
+            }
+
+            let lastEnd = this.notes[0].type === 'hold' ? this.notes[0].endTime : this.notes[0].time;
+            for (let i = 1; i < this.notes.length; i++) {
+                const note = this.notes[i];
+                if (note.time - lastEnd > 4000) {
+                    this.breaks.push({ startTime: lastEnd + 1000, endTime: note.time - 1500 });
+                }
+                const noteEnd = note.type === 'hold' ? note.endTime : note.time;
+                if (noteEnd > lastEnd) lastEnd = noteEnd;
+            }
+        }
+        
+        this.inBreak = false;
 
         this.od = beatmapData.od !== undefined ? beatmapData.od : 5;
         this.judge = {
@@ -304,7 +322,6 @@ class GameEngine {
         this.musicGain.gain.value = muVol;
         this.sfxGain.gain.value = sfxVol;
 
-        // 增加延迟和hasFocus判定，避免DOM元素切换引发的假失焦BUG
         let volTimeout;
         const checkVolume = () => {
             clearTimeout(volTimeout);
@@ -319,7 +336,7 @@ class GameEngine {
                 } else if (this.masterGain) {
                     this.masterGain.gain.value = targetVol;
                 }
-            }, 150); // 防抖 150 毫秒
+            }, 150); 
         };
 
         this.onBlur = checkVolume;
@@ -329,7 +346,6 @@ class GameEngine {
         window.addEventListener('focus', this.onFocus);
     }
 
-    // 🌟 将网络数据加入排序缓冲队列
     queueSpectatorEvent(evt) {
         this.spectatorEvents.push(evt);
         this.spectatorEvents.sort((a, b) => a.time - b.time);
@@ -340,7 +356,6 @@ class GameEngine {
         this.audioSource.buffer = this.audioBuffer;
         this.audioSource.connect(this.musicGain);
         
-        // 🌟 观战端推迟音频和时间轴起点，自然生成4秒安全缓冲区
         const delaySeconds = this.spectatorDelay / 1000;
         this.fallbackStartTime = performance.now() + this.spectatorDelay;
         
@@ -353,7 +368,6 @@ class GameEngine {
         this.isRunning = true;
         this.isPaused = false;
 
-        // 如果包含视频背景，也必须推迟等量时间开始播放
         if (window.videoPlayer) {
             if (this.spectatorDelay > 0) {
                 setTimeout(() => { if (this.isRunning && !this.isPaused) window.videoPlayer.play(); }, this.spectatorDelay);
@@ -450,7 +464,6 @@ class GameEngine {
         osc.stop(this.audioCtx.currentTime + 0.05);
     }
 
-    // 只有主玩家才会调用的判定方法
     addJudge(type, diff = 0, lane = -1, isTail = false) {
         if(this.state.failed && type === 'miss') return; 
         
@@ -477,7 +490,6 @@ class GameEngine {
         this.addEffect(type);
 
         if (!this.isSpectator && !this.isReplay && isMulti && socket) {
-            // 🌟 在这里，房主会把一切都算好然后发送给其他人
             socket.emit('judge_event', {
                 judgeType: type, diff, lane, isTail, time: this.getTime(),
                 hp: this.state.hp, combo: this.state.combo, maxCombo: this.state.maxCombo,
@@ -518,7 +530,6 @@ class GameEngine {
         this.updateHUD();
     }
 
-    // 🌟 观战专用：接收房主的确切判定，直接硬核覆写状态（消除计算差异）
     applyRemoteJudge(data) {
         this.state.hp = data.hp;
         this.state.combo = data.combo;
@@ -536,7 +547,6 @@ class GameEngine {
         this.addEffect(data.judgeType);
         this.updateHUD();
 
-        // 消除音符实体（防止其在画面上继续下落）
         if (data.lane >= 0) {
             let target = null, minDiff = Infinity;
             for (let i = 0; i < this.notes.length; i++) {
@@ -698,7 +708,6 @@ class GameEngine {
 
         if (now > this.lastNoteTime + 1500) { this.endGame(); return; }
 
-        // 🌟 本地回放处理（需自行计算判定）
         if (this.isReplay) {
             while (this.remoteKeyEvents.length > 0 && this.remoteKeyEvents[0].time <= now) {
                 const evt = this.remoteKeyEvents.shift();
@@ -707,15 +716,12 @@ class GameEngine {
             }
         }
 
-        // 🌟 核心修改：网络观战端仅充当“播放器”，消耗缓存事件，无脑执行
         if (this.isSpectator) {
             while (this.spectatorEvents.length > 0 && this.spectatorEvents[0].time <= now) {
                 const evt = this.spectatorEvents.shift();
                 if (evt.eventType === 'key') {
-                    // 仅渲染按键闪烁光轨效果，无任何判定绑定
                     this.keys[evt.lane] = (evt.action === 'down');
                 } else if (evt.eventType === 'judge') {
-                    // 完全依赖房主发来的确切判定进行销毁和计分
                     this.applyRemoteJudge(evt);
                 }
             }
@@ -742,7 +748,6 @@ class GameEngine {
 
         const missThreshold = this.isReplay ? this.judge.p50 + 400 : this.judge.p50;
 
-        // 🌟 观战端彻底屏蔽本地自动 MISS 机制！一切交给远程裁判
         if (!this.isSpectator) {
             for (let i = 0; i < this.notes.length; i++) {
                 const note = this.notes[i];
@@ -791,7 +796,7 @@ class GameEngine {
                 if (note.isHolding) startY = this.hitLineY;
                 if (startY > 0 && endY < canvas.height) {
                     ctx.globalAlpha = 0.5; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = 1.0;
-                    if (!note.headJudged) { ctx.fillStyle = '#fff'; ctx.fillRect(x + 2, startY - 15, this.laneWidth - 4, 15); }
+                    if (!note.headJudged) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 2, startY - 15, this.laneWidth - 4, 15); }
                     ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, 15);
                 }
             } else {
@@ -799,7 +804,7 @@ class GameEngine {
                 const y = this.hitLineY - ((note.time - now) / 1000) * this.scrollSpeed;
                 if (y > -20 && y < canvas.height + 20) {
                     ctx.fillStyle = color; ctx.fillRect(x + 2, y - 15, this.laneWidth - 4, 15);
-                    ctx.fillStyle = '#fff'; ctx.fillRect(x + 8, y - 10, this.laneWidth - 16, 5);
+                    ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 8, y - 10, this.laneWidth - 16, 5);
                 }
             }
         }
@@ -837,6 +842,70 @@ class GameEngine {
 
         ctx.fillStyle = '#111'; ctx.fillRect(offsetX, 0, this.trackWidth, 10);
         ctx.fillStyle = this.state.hp > 20 ? '#10b981' : '#ef4444'; ctx.fillRect(offsetX, 0, (this.state.hp / 100) * this.trackWidth, 10);
+
+        const currentBreak = this.breaks.find(b => now >= b.startTime && now <= b.endTime);
+        
+        if (currentBreak) {
+            if (!this.inBreak) {
+                this.inBreak = true;
+                const bgEl = document.getElementById('game-bg');
+                const vidEl = document.getElementById('bg-video-canvas');
+                if (bgEl) bgEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
+                if (vidEl && vidEl.style.display !== 'none') vidEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
+            }
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const progress = Math.min(1, Math.max(0, (now - currentBreak.startTime) / (currentBreak.endTime - currentBreak.startTime)));
+            const barMaxWidth = Math.min(600, canvas.width * 0.75);
+            const barWidth = barMaxWidth * (1 - progress);
+            const barX = (canvas.width - barWidth) / 2;
+            const barY = canvas.height / 2;
+            
+            ctx.fillStyle = '#3b82f6';
+            ctx.fillRect(barX, barY, barWidth, 6);
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(barX, barY + 1, barWidth, 2);
+            
+            const timeLeft = Math.ceil((currentBreak.endTime - now) / 1000);
+            ctx.font = '800 50px Consolas, monospace';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.fillText(timeLeft, canvas.width / 2, barY - 30);
+            ctx.shadowBlur = 0;
+            
+            const grade = getGrade(this.state.acc, this.state.failed);
+            let gradeColor = '#71717a';
+            if (grade === 'SS') gradeColor = '#fbbf24';
+            else if (grade === 'S') gradeColor = '#f59e0b';
+            else if (grade === 'A') gradeColor = '#34d399';
+            else if (grade === 'B') gradeColor = '#60a5fa';
+            else if (grade === 'C') gradeColor = '#f43f5e';
+            else if (grade === 'D') gradeColor = '#ef4444';
+            
+            ctx.font = '600 24px Segoe UI';
+            ctx.fillStyle = '#aaaaaa';
+            ctx.fillText(`ACC: ${this.state.acc.toFixed(2)}%`, canvas.width / 2, barY + 50);
+            
+            ctx.font = 'italic 800 36px Segoe UI';
+            ctx.fillStyle = gradeColor;
+            ctx.fillText(grade, canvas.width / 2, barY + 95);
+            
+        } else {
+            if (this.inBreak) {
+                this.inBreak = false;
+                let filterStr = `brightness(${(100 - (userSettings.bgDim !== undefined ? userSettings.bgDim : 80)) / 100})`;
+                if (userSettings.bgBlur > 0) filterStr += ` blur(${userSettings.bgBlur}px)`;
+                const bgEl = document.getElementById('game-bg');
+                const vidEl = document.getElementById('bg-video-canvas');
+                if (bgEl) bgEl.style.filter = filterStr;
+                if (vidEl) vidEl.style.filter = filterStr;
+            }
+        }
     }
 }
 
@@ -916,7 +985,7 @@ async function initGame(isSpectating) {
                 canvas: videoCanvas,
                 source: FetchStreamSource, 
                 loop: true,
-                autoplay: false, // 统一交由引擎的 start() 配合延迟启动
+                autoplay: false, 
                 audio: false 
             });
         } else {
@@ -983,6 +1052,7 @@ function parseOsuFile(osuText) {
     let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
     const notes = [];
     const samples = []; 
+    const breaks = []; 
     
     for (let line of lines) {
         line = line.trim();
@@ -1000,6 +1070,10 @@ function parseOsuFile(osuText) {
             if (parts[0] === 'Video' || parts[0] === '1') {
                 if (parts.length >= 3) {
                     videoPath = parts[2].replace(/"/g, '').trim();
+                }
+            } else if (parts[0] === '2' || parts[0] === 'Break') {
+                if (parts.length >= 3) {
+                    breaks.push({ startTime: parseInt(parts[1]), endTime: parseInt(parts[2]) });
                 }
             } else if (parts[0] === 'Sample') {
                 if (parts.length >= 4) {
@@ -1057,7 +1131,11 @@ function parseOsuFile(osuText) {
     }
 
     if (beatLengths.length > 0) bpm = Math.round(60000 / beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop());
-    return { notes: notes.sort((a,b) => a.time - b.time), bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath };
+    return { 
+        notes: notes.sort((a,b) => a.time - b.time), 
+        breaks: breaks.sort((a,b) => a.startTime - b.startTime),
+        bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath 
+    };
 }
 
 function animateValue(obj, start, end, duration, formatStr = false) {
@@ -1307,7 +1385,6 @@ window.addEventListener('keydown', (e) => {
     }
 
     if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning) { 
-        // 观战模式下完全屏蔽本地按键，只通过事件处理！
         if (!e.repeat && !isReplayMode && !gameEngine.isSpectator) gameEngine.onKeyDown(KEY_MAP[e.code]); 
     }
 });
