@@ -850,14 +850,37 @@ class GameEngine {
                 this.inBreak = true;
                 const bgEl = document.getElementById('game-bg');
                 const vidEl = document.getElementById('bg-video-canvas');
-                if (bgEl) bgEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
-                if (vidEl && vidEl.style.display !== 'none') vidEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
+                // 强制应用 0.5s 的平滑滤镜过渡
+                if (bgEl) {
+                    bgEl.style.transition = 'filter 0.5s ease-in-out';
+                    bgEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
+                }
+                if (vidEl && vidEl.style.display !== 'none') {
+                    vidEl.style.transition = 'filter 0.5s ease-in-out';
+                    vidEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
+                }
             }
+            
+            // 计算线性淡入淡出透明度 (500ms 的过渡期)
+            const fadeTime = 500;
+            const timeSinceStart = now - currentBreak.startTime;
+            const timeTillEnd = currentBreak.endTime - now;
+            let breakAlpha = 1;
+
+            if (timeSinceStart < fadeTime) {
+                breakAlpha = timeSinceStart / fadeTime;
+            } else if (timeTillEnd < fadeTime) {
+                breakAlpha = timeTillEnd / fadeTime;
+            }
+
+            // 保存当前画布状态并应用透明度
+            ctx.save();
+            ctx.globalAlpha = breakAlpha;
             
             ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            const progress = Math.min(1, Math.max(0, (now - currentBreak.startTime) / (currentBreak.endTime - currentBreak.startTime)));
+            const progress = Math.min(1, Math.max(0, timeSinceStart / (currentBreak.endTime - currentBreak.startTime)));
             const barMaxWidth = Math.min(600, canvas.width * 0.75);
             const barWidth = barMaxWidth * (1 - progress);
             const barX = (canvas.width - barWidth) / 2;
@@ -869,7 +892,7 @@ class GameEngine {
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(barX, barY + 1, barWidth, 2);
             
-            const timeLeft = Math.ceil((currentBreak.endTime - now) / 1000);
+            const timeLeft = Math.ceil(timeTillEnd / 1000);
             ctx.font = '800 50px Consolas, monospace';
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'center';
@@ -895,6 +918,9 @@ class GameEngine {
             ctx.fillStyle = gradeColor;
             ctx.fillText(grade, canvas.width / 2, barY + 95);
             
+            // 恢复画布状态
+            ctx.restore();
+            
         } else {
             if (this.inBreak) {
                 this.inBreak = false;
@@ -902,8 +928,15 @@ class GameEngine {
                 if (userSettings.bgBlur > 0) filterStr += ` blur(${userSettings.bgBlur}px)`;
                 const bgEl = document.getElementById('game-bg');
                 const vidEl = document.getElementById('bg-video-canvas');
-                if (bgEl) bgEl.style.filter = filterStr;
-                if (vidEl) vidEl.style.filter = filterStr;
+                // 恢复普通状态时同样应用 0.5s 平滑过渡
+                if (bgEl) {
+                    bgEl.style.transition = 'filter 0.5s ease-in-out';
+                    bgEl.style.filter = filterStr;
+                }
+                if (vidEl) {
+                    vidEl.style.transition = 'filter 0.5s ease-in-out';
+                    vidEl.style.filter = filterStr;
+                }
             }
         }
     }
