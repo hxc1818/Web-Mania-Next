@@ -90,13 +90,7 @@
             <section class="set-sec">
                 <h2 data-i18n="cat_general">常规</h2>
                 <button class="osu-btn" style="width:100%; margin-bottom: 15px;" onclick="showScreen('setup-screen'); closeSettings();" data-i18n="open_wizard">打开设置向导</button>
-                <div class="set-row">
-                    <label data-i18n="language">语言</label>
-                    <select id="st-language" class="osu-select">
-                        <option value="zh">简体中文</option>
-                        <option value="en">English</option>
-                    </select>
-                </div>
+                <div id="dropdown-language" class="osu-dropdown-placeholder"></div>
                 <button class="osu-btn" style="width:100%; margin-bottom: 15px;" onclick="openSongsFolder()" data-i18n="open_songs">打开songs文件夹</button>
                 <div class="set-row">
                     <label data-i18n="change_songs">更改songs文件夹位置</label>
@@ -111,16 +105,7 @@
             <!-- 皮肤 -->
             <section class="set-sec">
                 <h2 data-i18n="cat_skin">皮肤</h2>
-                <div class="set-row">
-                    <label data-i18n="track_keys">轨道Key数</label>
-                    <select id="st-skin-keys" class="osu-select">
-                        <option value="1">1K</option><option value="2">2K</option><option value="3">3K</option><option value="4">4K</option>
-                        <option value="5">5K</option><option value="6">6K</option><option value="7">7K</option><option value="8">8K</option>
-                        <option value="9">9K</option><option value="10">10K</option><option value="11">11K</option><option value="12">12K</option>
-                        <option value="13">13K</option><option value="14">14K</option><option value="15">15K</option><option value="16">16K</option>
-                        <option value="17">17K</option><option value="18">18K</option>
-                    </select>
-                </div>
+                <div id="dropdown-skinKeys" class="osu-dropdown-placeholder"></div>
                 <div id="st-skin-colors" style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 </div>
             </section>
@@ -129,6 +114,11 @@
             <section class="set-sec">
                 <h2 data-i18n="cat_input">输入</h2>
                 <button class="osu-btn" style="width:100%; margin-bottom: 15px;" onclick="openKeybinds()" data-i18n="config_keys">配置</button>
+                <div id="toggle-highPrecision" class="osu-toggle-placeholder"></div>
+                <div id="slider-sensitivity" class="osu-slider-placeholder"></div>
+                <div id="dropdown-confineCursor" class="osu-dropdown-placeholder"></div>
+                <div id="toggle-disableWheel" class="osu-toggle-placeholder"></div>
+                <div id="toggle-disableClick" class="osu-toggle-placeholder"></div>
                 <div id="toggle-touchClick" class="osu-toggle-placeholder"></div>
             </section>
 
@@ -148,10 +138,7 @@
             <!-- 音频 -->
             <section class="set-sec">
                 <h2 data-i18n="cat_audio">音频</h2>
-                <div class="set-row">
-                    <label data-i18n="device">播放设备</label>
-                    <select id="st-audioDevice" class="osu-select"></select>
-                </div>
+                <div id="dropdown-audioDevice" class="osu-dropdown-placeholder"></div>
                 
                 <div id="toggle-enableHitSounds" class="osu-toggle-placeholder"></div>
 
@@ -172,37 +159,11 @@
                 
                 <div id="slider-uiScale" class="osu-slider-placeholder"></div>
                 
-                <div class="set-row">
-                    <label data-i18n="renderer">渲染器</label>
-                    <select id="st-renderer" class="osu-select">
-                        <option value="default" data-i18n="rend_default">默认</option>
-                        <option value="d3d12">DirectX 12</option>
-                        <option value="d3d11">DirectX 11</option>
-                        <option value="graphite">Graphite (Skia)</option>
-                    </select>
-                </div>
-                <div class="set-row-inline" onclick="toggleSwitch('st-desync')">
-                    <label data-i18n="desync">启用desynchronized模式</label>
-                    <div class="osu-switch-wrap"><div id="st-desync" class="osu-switch"></div></div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="fps_limit">帧数限制</label>
-                    <select id="st-fpsLimit" class="osu-select">
-                        <option value="vsync">VSync</option>
-                        <option value="2x">2x refresh rate</option>
-                        <option value="4x">4x refresh rate</option>
-                        <option value="8x">8x refresh rate</option>
-                        <option value="unlimited" data-i18n="unlimited">无限制</option>
-                    </select>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="thread_mode">线程模式</label>
-                    <select id="st-threadMode" class="osu-select">
-                        <option value="single" data-i18n="single_thread">单线程</option>
-                        <option value="multi" data-i18n="multi_thread">多线程</option>
-                    </select>
-                </div>
+                <div id="dropdown-renderer" class="osu-dropdown-placeholder"></div>
                 <div id="toggle-desync" class="osu-toggle-placeholder"></div>
+                <div id="dropdown-fpsLimit" class="osu-dropdown-placeholder"></div>
+                <div id="dropdown-threadMode" class="osu-dropdown-placeholder"></div>
+
                 <div id="toggle-showFps" class="osu-toggle-placeholder"></div>
                 <div id="toggle-hwAccel" class="osu-toggle-placeholder"></div>
             </section>

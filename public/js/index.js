@@ -1,4 +1,5 @@
 // /public/js/index.js
+
 class OsuSlider {
     constructor(containerId, options) {
         this.container = document.getElementById(containerId);
@@ -254,6 +255,160 @@ class OsuToggle {
     }
 }
 
+class OsuDropdown {
+    constructor(containerId, options) {
+        this.container = document.getElementById(containerId);
+        if (!this.container) return;
+        this.labelKey = options.labelKey;
+        this.optionsData = options.options || []; 
+        this.defaultValue = options.defaultValue;
+        this.value = options.value !== undefined ? options.value : this.defaultValue;
+        this.onChange = options.onChange;
+        this.isOpen = false;
+
+        this.buildDOM();
+        this.attachEvents();
+        this.updateVisuals();
+    }
+
+    buildDOM() {
+        const lang = userSettings.language || 'zh';
+        const translatedLabel = (i18nDict[lang] && i18nDict[lang][this.labelKey]) ? i18nDict[lang][this.labelKey] : this.labelKey;
+        
+        this.container.innerHTML = `
+            <div class="osu-dropdown-wrapper" tabindex="0">
+                <div class="osu-dropdown-container">
+                    <div class="osu-dropdown-main">
+                        <div class="dropdown-left">
+                            <span class="dropdown-label" data-i18n="${this.labelKey}">${translatedLabel}</span>
+                            <span class="dropdown-value" id="${this.container.id}-val-disp"></span>
+                        </div>
+                        <div class="dropdown-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+                        </div>
+                    </div>
+                    <div class="dropdown-list-wrapper">
+                        <div class="dropdown-list-inner"></div>
+                    </div>
+                </div>
+                <div class="dropdown-reset slider-reset">
+                    <button class="slider-reset-btn" title="重置为默认值">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        this.wrapper = this.container.querySelector('.osu-dropdown-wrapper');
+        this.main = this.container.querySelector('.osu-dropdown-main');
+        this.listWrapper = this.container.querySelector('.dropdown-list-wrapper');
+        this.listInner = this.container.querySelector('.dropdown-list-inner');
+        this.valDisplay = this.container.querySelector('.dropdown-value');
+        this.icon = this.container.querySelector('.dropdown-icon');
+        this.resetContainer = this.container.querySelector('.dropdown-reset');
+        this.resetBtn = this.container.querySelector('.slider-reset-btn');
+        
+        this.renderOptionsList();
+    }
+
+    renderOptionsList() {
+        this.listInner.innerHTML = '';
+        this.optionsData.forEach(opt => {
+            const el = document.createElement('div');
+            el.className = `dropdown-option ${this.value === opt.value ? 'selected' : ''}`;
+            const i18nAttr = opt.i18n ? `data-i18n="${opt.i18n}"` : '';
+            el.innerHTML = `
+                <div class="dropdown-option-arrow">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+                </div>
+                <span style="z-index:10;" ${i18nAttr}>${opt.label}</span>
+            `;
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.setValue(opt.value);
+                this.setOpen(false);
+            });
+            this.listInner.appendChild(el);
+        });
+        
+        if (typeof applyTranslations === 'function') applyTranslations();
+    }
+
+    updateOptions(newOptions) {
+        this.optionsData = newOptions;
+        this.renderOptionsList();
+        this.updateVisuals();
+    }
+
+    setValue(val, triggerOnChange = true) {
+        if (this.value !== val) {
+            this.value = val;
+            if (triggerOnChange) this.onChange(this.value);
+            this.renderOptionsList(); 
+        }
+        this.updateVisuals();
+    }
+
+    setOpen(state) {
+        this.isOpen = state;
+        if (state) {
+            Object.values(window.osuDropdowns || {}).forEach(d => { if(d !== this) d.setOpen(false); });
+            this.main.classList.add('open');
+            this.listWrapper.classList.add('open');
+            this.icon.classList.add('open');
+        } else {
+            this.main.classList.remove('open');
+            this.listWrapper.classList.remove('open');
+            this.icon.classList.remove('open');
+        }
+    }
+
+    updateVisuals() {
+        const currentOpt = this.optionsData.find(o => o.value === this.value) || this.optionsData[0] || { label: 'Unknown' };
+        
+        if (currentOpt.i18n) {
+            this.valDisplay.setAttribute('data-i18n', currentOpt.i18n);
+        } else {
+            this.valDisplay.removeAttribute('data-i18n');
+        }
+        this.valDisplay.innerText = currentOpt.label;
+
+        if (this.value !== this.defaultValue) {
+            this.resetContainer.classList.add('show');
+        } else {
+            this.resetContainer.classList.remove('show');
+        }
+        if (typeof applyTranslations === 'function') applyTranslations();
+    }
+
+    attachEvents() {
+        this.main.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.setOpen(!this.isOpen);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (this.isOpen && !this.container.contains(e.target)) {
+                this.setOpen(false);
+            }
+        });
+
+        this.wrapper.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                this.setOpen(!this.isOpen);
+            } else if (e.key === 'Escape' && this.isOpen) {
+                e.preventDefault();
+                this.setOpen(false);
+            }
+        });
+
+        this.resetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.setValue(this.defaultValue);
+            this.setOpen(false);
+        });
+    }
+}
 
 let beatmaps = [];
 let mapGroups = {};
@@ -415,11 +570,12 @@ function initSettingsUI() {
         }
     };
 
-    bindEl('st-language', 'language');
-    bindEl('st-renderer', 'renderer');
-    bindEl('st-fpsLimit', 'fpsLimit');
-    bindEl('st-threadMode', 'threadMode');
-    bindEl('st-audioDevice', 'audioDevice');
+    // 移除旧的原生 select 绑定逻辑
+    // bindEl('st-language', 'language');
+    // bindEl('st-renderer', 'renderer');
+    // bindEl('st-fpsLimit', 'fpsLimit');
+    // bindEl('st-threadMode', 'threadMode');
+    // bindEl('st-audioDevice', 'audioDevice');
 
     // 初始化全局滑块映射，用于被动式数值修改
     window.osuSliders = {};
@@ -451,6 +607,7 @@ function initSettingsUI() {
     initSlider('slider-musicVol', 'musicVol', 'music_vol', 0, 100, 1, 100, v => v + '%', updatePreviewVolume);
     initSlider('slider-offset', 'offset', 'audio_offset', -1000, 1000, 1, 0, v => v + 'ms');
     initSlider('slider-uiScale', 'uiScale', 'ui_scale', 0.1, 4.0, 0.1, 1.0, v => v.toFixed(1) + 'x', () => applyUIScale());
+    initSlider('slider-sensitivity', 'sensitivity', '光标灵敏度', 0.1, 10.0, 0.1, 1.0, v => v.toFixed(1) + 'x');
 
     // 初始化全局开关映射
     window.osuToggles = {};
@@ -469,6 +626,9 @@ function initSettingsUI() {
     };
 
     initToggle('toggle-touchClick', 'touchClick', 'touch_click', false);
+    initToggle('toggle-highPrecision', 'highPrecision', '高精度鼠标', false);
+    initToggle('toggle-disableWheel', 'disableWheel', '在游戏中禁用鼠标滚轮调整音量', false);
+    initToggle('toggle-disableClick', 'disableClick', '在游戏中禁用鼠标点击', false);
     initToggle('toggle-hitErrorMeter', 'hitErrorMeter', 'hit_error', true);
     initToggle('toggle-noStoryboard', 'noStoryboard', 'no_sb', false);
     initToggle('toggle-autoOffset', 'autoOffset', 'auto_offset', false);
@@ -477,6 +637,69 @@ function initSettingsUI() {
     initToggle('toggle-showFps', 'showFps', 'show_fps', true);
     initToggle('toggle-hwAccel', 'hwAccel', 'hw_accel', false);
     initToggle('toggle-enableHitSounds', 'enableHitSounds', 'enable_hitsounds', true);
+
+    // 初始化全局下拉菜单映射
+    window.osuDropdowns = {};
+    const initDropdown = (id, prop, labelKey, opts, defVal, onChangeExtra) => {
+        if(!document.getElementById(id)) return;
+        window.osuDropdowns[prop] = new OsuDropdown(id, {
+            labelKey: labelKey,
+            options: opts,
+            defaultValue: defVal,
+            value: userSettings[prop] !== undefined ? userSettings[prop] : defVal,
+            onChange: (val) => {
+                userSettings[prop] = val;
+                saveSettings();
+                if (prop === 'renderer' || prop === 'fpsLimit' || prop === 'threadMode') saveSysConfig();
+                if (prop === 'language') applyTranslations();
+                if (onChangeExtra) onChangeExtra(val);
+            }
+        });
+    };
+
+    initDropdown('dropdown-language', 'language', 'language', [
+        { value: 'zh', label: '简体中文' },
+        { value: 'en', label: 'English' }
+    ], 'zh');
+
+    initDropdown('dropdown-confineCursor', 'confineCursor', '将光标限制在窗口内', [
+        { value: 'never', label: '不限制' },
+        { value: 'play', label: '仅在游玩时限制' },
+        { value: 'always', label: '总是限制' }
+    ], 'never');
+
+    const keysOpts = [];
+    for(let i=1; i<=18; i++) keysOpts.push({ value: i.toString(), label: `${i}K` });
+    initDropdown('dropdown-skinKeys', 'skinKeys', 'track_keys', keysOpts, '4', (val) => renderSkinColors(parseInt(val)));
+    // 这里顺便用 userSettings.skinKeys 取代旧的下拉框逻辑
+    if (!userSettings.skinKeys) userSettings.skinKeys = '4';
+    renderSkinColors(parseInt(userSettings.skinKeys));
+
+    initDropdown('dropdown-renderer', 'renderer', 'renderer', [
+        { value: 'default', label: '默认', i18n: 'rend_default' },
+        { value: 'd3d12', label: 'DirectX 12' },
+        { value: 'd3d11', label: 'DirectX 11' },
+        { value: 'graphite', label: 'Graphite (Skia)' }
+    ], 'default');
+
+    initDropdown('dropdown-fpsLimit', 'fpsLimit', 'fps_limit', [
+        { value: 'vsync', label: 'VSync' },
+        { value: '2x', label: '2x refresh rate' },
+        { value: '4x', label: '4x refresh rate' },
+        { value: '8x', label: '8x refresh rate' },
+        { value: 'unlimited', label: '无限制', i18n: 'unlimited' }
+    ], 'vsync');
+
+    initDropdown('dropdown-threadMode', 'threadMode', 'thread_mode', [
+        { value: 'single', label: '单线程', i18n: 'single_thread' },
+        { value: 'multi', label: '多线程', i18n: 'multi_thread' }
+    ], 'single');
+
+    // 音频设备是个特例，先传个空的占位，等会儿 populateAudioDevices 获取完再填进去
+    initDropdown('dropdown-audioDevice', 'audioDevice', 'device', [
+        { value: 'default', label: 'Default / 默认' }
+    ], 'default');
+
 
     document.getElementById('st-folder').value = localStorage.getItem('wm_folderPath') || '';
     document.getElementById('st-folder').addEventListener('change', (e) => {
@@ -490,12 +713,13 @@ function initSettingsUI() {
         saveSettings();
     });
 
-    const kSel = document.getElementById('st-skin-keys');
-    kSel.value = '4';
-    renderSkinColors(4);
-    kSel.addEventListener('change', (e) => {
-        renderSkinColors(parseInt(e.target.value));
-    });
+    // 移除旧的 kSel 相关绑定代码
+    // const kSel = document.getElementById('st-skin-keys');
+    // kSel.value = '4';
+    // renderSkinColors(4);
+    // kSel.addEventListener('change', (e) => {
+    //     renderSkinColors(parseInt(e.target.value));
+    // });
 
     const errStr = localStorage.getItem('webmania_last_error');
     if (errStr && parseInt(errStr) !== 0) {
@@ -547,9 +771,15 @@ async function populateAudioDevices() {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const outputs = devices.filter(d => d.kind === 'audiooutput');
-        const sel = document.getElementById('st-audioDevice');
-        sel.innerHTML = '<option value="default">Default / 默认</option>' + outputs.map(d => `<option value="${d.deviceId}">${d.label || 'Unknown Device'}</option>`).join('');
-        sel.value = userSettings.audioDevice || 'default';
+        
+        const opts = [{ value: 'default', label: 'Default / 默认' }];
+        outputs.forEach(d => {
+            opts.push({ value: d.deviceId, label: d.label || 'Unknown Device' });
+        });
+        
+        if (window.osuDropdowns && window.osuDropdowns['audioDevice']) {
+            window.osuDropdowns['audioDevice'].updateOptions(opts);
+        }
     } catch(e) {}
 }
 
