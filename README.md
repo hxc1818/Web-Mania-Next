@@ -35,9 +35,10 @@ Web Mania Next 是一个基于 Electron 和现代 Web 技术（HTML5 Canvas + We
 
 ## 游戏截图 (Screenshots)
 
-> ![选歌界面](./docs/select-screen.png)
-> ![游戏界面](./docs/gameplay.png)
-> ![多人联机](./docs/multiplayer.png)
+<img width="1920" height="1040" alt="select-screen" src="https://github.com/user-attachments/assets/e487ccc7-4038-4c6e-b77c-2520337d56c0" />
+<img width="1920" height="1040" alt="multiplayer" src="https://github.com/user-attachments/assets/f74da7d2-0e25-471d-93c0-8239c8f33ae1" />
+<img width="1920" height="1040" alt="gameplay" src="https://github.com/user-attachments/assets/9ddaf2cf-4ba2-4006-b4b0-53592f855b01" />
+
 
 ## 快速开始 (Getting Started)
 
