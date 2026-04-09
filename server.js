@@ -11,6 +11,7 @@ const { exec, spawn } = require('child_process');
 const os = require('os');
 const net = require('net');
 const EventEmitter = require('events');
+const crypto = require('crypto');
 
 // 创建全局窗口事件控制器
 const winControl = new EventEmitter();
@@ -19,6 +20,14 @@ let APP_DATA_PATH = os.tmpdir();
 
 const app = express();
 const server = http.createServer(app);
+
+// 开启 SharedArrayBuffer 所需的跨域隔离头
+// 使用 credentialless 避免屏蔽外部非 CORS 资源的请求（例如 Sayobot API）
+app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+    next();
+});
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -142,6 +151,42 @@ app.get('/api/open_folder', (req, res) => {
             res.json({ success: false });
         }
     } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// 视频转码缓存处理接口
+app.get('/api/check_video_cache', (req, res) => {
+    const videoPath = req.query.path;
+    if (!videoPath) return res.json({ cached: false });
+    
+    const cacheDir = path.join(APP_DATA_PATH, 'Temp', 'video_cache');
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+    const hash = crypto.createHash('md5').update(videoPath).digest('hex');
+    const cachedPath = path.join(cacheDir, hash + '.mp4');
+    if (fs.existsSync(cachedPath)) {
+        res.json({ cached: true, cachedPath: cachedPath });
+    } else {
+        res.json({ cached: false });
+    }
+});
+
+app.post('/api/cache_video', upload.single('video'), (req, res) => {
+    const videoPath = req.body.originalPath;
+    if (!videoPath || !req.file) return res.status(400).json({ error: 'bad request' });
+    
+    const cacheDir = path.join(APP_DATA_PATH, 'Temp', 'video_cache');
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+    const hash = crypto.createHash('md5').update(videoPath).digest('hex');
+    const cachedPath = path.join(cacheDir, hash + '.mp4');
+    
+    try {
+        fs.copyFileSync(req.file.path, cachedPath);
+        fs.unlinkSync(req.file.path);
+        res.json({ success: true, cachedPath: cachedPath });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.post('/api/local_scores', (req, res) => {
@@ -314,7 +359,6 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         const folderPath = req.body.folderPath;
         if (!folderPath || !fs.existsSync(folderPath)) throw new Error('目标文件夹不存在');
         const zip = new AdmZip(req.file.path);
-        // 修改：提取并返回解压后的文件夹名
         const folderName = req.file.originalname.replace('.osz', '').replace(/[^a-zA-Z0-9 \-_]/g, '');
         const targetPath = path.join(folderPath, folderName);
         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });

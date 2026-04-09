@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web Mania Next - Single Player</title>
+    <!-- 将 ffmpeg.wasm 移至主页面以便预处理转码 -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="css/common.css">
     <link rel="stylesheet" href="css/index.css">
 </head>
@@ -80,6 +82,12 @@
         </div>
 
         <div class="select-right" id="map-list"></div>
+        
+        <!-- 移至页面底部的优雅进度条 -->
+        <div id="transcode-overlay" style="display: none; position: absolute; bottom: 0; left: 0; width: 100%; height: 6px; background: rgba(255,255,255,0.1); z-index: 200;">
+            <div id="transcode-progress" style="width: 0%; height: 100%; background: #3b82f6; transition: width 0.1s linear; box-shadow: 0 0 10px #3b82f6;"></div>
+            <div id="transcode-text" style="position: absolute; bottom: 15px; left: 80px; font-size: 14px; font-weight: bold; color: #60a5fa; text-shadow: 0 2px 5px rgba(0,0,0,0.8);">正在转码以提供更流畅的性能... 0%</div>
+        </div>
     </div>
 
     <div id="sidebar-close-zone" onclick="closeSettings()"></div>

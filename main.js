@@ -3,17 +3,12 @@ const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-// 屏蔽讨厌的 Electron 安全警告！
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
-
-// 1. 禁用掉帧率限制
 app.commandLine.appendSwitch('disable-frame-rate-limit');
-// 2. 彻底禁用垂直同步
 app.commandLine.appendSwitch('disable-gpu-vsync');
-// 3. 开启硬件加速（忽略黑名单）
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
-// 4. 修复部分系统的 ANGLE 及 GPU 沙盒崩溃报错
 app.commandLine.appendSwitch('disable-gpu-sandbox');
+app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
 const userDataPath = path.join(app.getPath('userData'), 'WebManiaData');
 if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath, { recursive: true });
@@ -55,8 +50,6 @@ async function createWindow() {
     winControl.on('set-kiosk', (val) => {
         if (mainWindow) {
             mainWindow.setKiosk(val);
-            // 修复：移除了引发报错的 globalShortcut.register('Super') 
-            // 因为 Super 是修饰键，Electron 不允许单独作为主键注册
         }
     });
 

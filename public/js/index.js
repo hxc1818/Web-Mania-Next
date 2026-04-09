@@ -511,6 +511,9 @@ window.addEventListener('DOMContentLoaded', () => {
     applyTranslations();
     applyUIScale(); 
 
+    // Reset lock to avoid bug
+    window.isStartingGame = false;
+
     if (isSelector) {
         document.querySelector('.mode-switcher').style.display = 'none';
         document.getElementById('settings-btn').style.display = 'none';
@@ -570,14 +573,6 @@ function initSettingsUI() {
         }
     };
 
-    // 移除旧的原生 select 绑定逻辑
-    // bindEl('st-language', 'language');
-    // bindEl('st-renderer', 'renderer');
-    // bindEl('st-fpsLimit', 'fpsLimit');
-    // bindEl('st-threadMode', 'threadMode');
-    // bindEl('st-audioDevice', 'audioDevice');
-
-    // 初始化全局滑块映射，用于被动式数值修改
     window.osuSliders = {};
     const initSlider = (id, prop, labelKey, min, max, step, defVal, formatStr, onChangeExtra) => {
         if(!document.getElementById(id)) return;
@@ -609,7 +604,6 @@ function initSettingsUI() {
     initSlider('slider-uiScale', 'uiScale', 'ui_scale', 0.1, 4.0, 0.1, 1.0, v => v.toFixed(1) + 'x', () => applyUIScale());
     initSlider('slider-sensitivity', 'sensitivity', '光标灵敏度', 0.1, 10.0, 0.1, 1.0, v => v.toFixed(1) + 'x');
 
-    // 初始化全局开关映射
     window.osuToggles = {};
     const initToggle = (id, prop, labelKey, defVal, onChangeExtra) => {
         if(!document.getElementById(id)) return;
@@ -638,7 +632,6 @@ function initSettingsUI() {
     initToggle('toggle-hwAccel', 'hwAccel', 'hw_accel', false);
     initToggle('toggle-enableHitSounds', 'enableHitSounds', 'enable_hitsounds', true);
 
-    // 初始化全局下拉菜单映射
     window.osuDropdowns = {};
     const initDropdown = (id, prop, labelKey, opts, defVal, onChangeExtra) => {
         if(!document.getElementById(id)) return;
@@ -671,7 +664,7 @@ function initSettingsUI() {
     const keysOpts = [];
     for(let i=1; i<=18; i++) keysOpts.push({ value: i.toString(), label: `${i}K` });
     initDropdown('dropdown-skinKeys', 'skinKeys', 'track_keys', keysOpts, '4', (val) => renderSkinColors(parseInt(val)));
-    // 这里顺便用 userSettings.skinKeys 取代旧的下拉框逻辑
+    
     if (!userSettings.skinKeys) userSettings.skinKeys = '4';
     renderSkinColors(parseInt(userSettings.skinKeys));
 
@@ -695,11 +688,9 @@ function initSettingsUI() {
         { value: 'multi', label: '多线程', i18n: 'multi_thread' }
     ], 'single');
 
-    // 音频设备是个特例，先传个空的占位，等会儿 populateAudioDevices 获取完再填进去
     initDropdown('dropdown-audioDevice', 'audioDevice', 'device', [
         { value: 'default', label: 'Default / 默认' }
     ], 'default');
-
 
     document.getElementById('st-folder').value = localStorage.getItem('wm_folderPath') || '';
     document.getElementById('st-folder').addEventListener('change', (e) => {
@@ -712,14 +703,6 @@ function initSettingsUI() {
         userSettings.multiId = e.target.value;
         saveSettings();
     });
-
-    // 移除旧的 kSel 相关绑定代码
-    // const kSel = document.getElementById('st-skin-keys');
-    // kSel.value = '4';
-    // renderSkinColors(4);
-    // kSel.addEventListener('change', (e) => {
-    //     renderSkinColors(parseInt(e.target.value));
-    // });
 
     const errStr = localStorage.getItem('webmania_last_error');
     if (errStr && parseInt(errStr) !== 0) {
@@ -1356,7 +1339,7 @@ async function selectMap(bm, element) {
 
 function parseOsuFileLite(osuText) {
     const lines = osuText.split(/\r?\n/);
-    let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, beatLengths = [];
+    let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, beatLengths = [], videoPath = null;
     for (let line of lines) {
         line = line.trim();
         if (line.startsWith('[')) { section = line; continue; }
@@ -1366,6 +1349,14 @@ function parseOsuFileLite(osuText) {
             if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim());
             if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
             if (line.startsWith('CircleSize:')) cs = parseFloat(line.split(':')[1].trim()); 
+        }
+        else if (section === '[Events]') {
+            const parts = line.split(',');
+            if (parts[0] === 'Video' || parts[0] === '1') {
+                if (parts.length >= 3) {
+                    videoPath = parts[2].replace(/"/g, '').trim();
+                }
+            }
         }
         else if (section === '[TimingPoints]') { let parts = line.split(','); if (parts.length >= 2 && parseFloat(parts[1]) > 0) beatLengths.push(parseFloat(parts[1])); } 
         else if (section === '[HitObjects]') {
@@ -1380,18 +1371,45 @@ function parseOsuFileLite(osuText) {
         let mainBL = beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop();
         bpm = Math.round(60000 / mainBL);
     }
-    return { bpm, hp, od, cs, previewTime, noteCount, holdCount };
+    return { bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath };
 }
 
-function startGame() {
-    if (!selectedMap) return; 
+// 转码和跳转逻辑集成在选歌界面
+async function startGame() {
+    if (!selectedMap || window.isStartingGame) return; 
+    window.isStartingGame = true;
+
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('selector') === 'true') {
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: 'select_map', map: selectedMap }, '*');
         }
+        window.isStartingGame = false;
         return;
     }
+
+    let needsTranscode = false;
+    let fullVideoPath = null;
+    let cachedVideoPath = null;
+
+    if (userSettings.noStoryboard !== true) {
+        const osuText = parsedMapCache[selectedMap.osuPath];
+        if (osuText) {
+            const parsed = parseOsuFileLite(osuText);
+            if (parsed.videoPath) {
+                fullVideoPath = selectedMap.dirPath + '/' + parsed.videoPath.trim();
+                if (fullVideoPath.toLowerCase().endsWith('.avi')) {
+                    try {
+                        const checkRes = await fetch(`${LOCAL_API_URL}/check_video_cache?path=${encodeURIComponent(fullVideoPath)}`);
+                        const checkData = await checkRes.json();
+                        if (checkData.cached) cachedVideoPath = checkData.cachedPath;
+                        else needsTranscode = true;
+                    } catch(e) {}
+                }
+            }
+        }
+    }
+
     const screen = document.getElementById('select-screen');
     screen.classList.add('transitioning');
     let vol = previewAudio.volume;
@@ -1400,9 +1418,67 @@ function startGame() {
         else { clearInterval(fadeOut); previewAudio.pause(); }
     }, 50);
 
+    if (needsTranscode) {
+        const overlay = document.getElementById('transcode-overlay');
+        overlay.style.display = 'block';
+        const bar = document.getElementById('transcode-progress');
+        const text = document.getElementById('transcode-text');
+
+        try {
+            const { createFFmpeg } = FFmpeg;
+            if (!window.ffmpegInstance) {
+                text.innerText = "加载核心组件...";
+                window.ffmpegInstance = createFFmpeg({ log: true });
+                window.ffmpegInstance.setProgress(({ ratio }) => {
+                    const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+                    bar.style.width = percent + '%';
+                    text.innerText = `为提供更极致流畅的体验，正在永久转换老旧视频格式 (${percent}%)`;
+                });
+                await window.ffmpegInstance.load();
+            }
+
+            text.innerText = "正在读取源视频...";
+            const videoUrl = `${LOCAL_API_URL}/file?path=${encodeURIComponent(fullVideoPath)}`;
+            const aviResponse = await fetch(videoUrl);
+            if (!aviResponse.ok) throw new Error("获取视频文件失败");
+            const aviBuffer = await aviResponse.arrayBuffer();
+            
+            text.innerText = "正在转换格式... (此操作仅当前谱面进行一次)";
+            window.ffmpegInstance.FS('writeFile', 'input.avi', new Uint8Array(aviBuffer));
+            await window.ffmpegInstance.run('-i', 'input.avi', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', 'output.mp4');
+            
+            text.innerText = "正在将其写入系统缓存以供下次秒开...";
+            const data = window.ffmpegInstance.FS('readFile', 'output.mp4');
+            const mp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
+            
+            const fd = new FormData();
+            fd.append('video', mp4Blob, 'output.mp4');
+            fd.append('originalPath', fullVideoPath);
+            const uploadRes = await fetch(`${LOCAL_API_URL}/cache_video`, { method: 'POST', body: fd });
+            const uploadData = await uploadRes.json();
+            if (uploadData.success) cachedVideoPath = uploadData.cachedPath;
+
+            window.ffmpegInstance.FS('unlink', 'input.avi');
+            window.ffmpegInstance.FS('unlink', 'output.mp4');
+
+        } catch (err) {
+            console.error("转码环节发生异常:", err);
+        } finally {
+            setTimeout(() => { finishStartGame(cachedVideoPath); }, 500);
+        }
+    } else {
+        setTimeout(() => { finishStartGame(cachedVideoPath); }, 1000); 
+    }
+}
+
+function finishStartGame(cachedVideoPath) {
     sessionStorage.setItem('webmania_multi', 'false');
     sessionStorage.setItem('webmania_current_map', JSON.stringify(selectedMap));
     sessionStorage.setItem('webmania_current_leaderboard', JSON.stringify(currentLeaderboard));
-    
-    setTimeout(() => { window.location.href = 'game.html'; }, 1000); 
+    if (cachedVideoPath) {
+        sessionStorage.setItem('webmania_cached_video', cachedVideoPath);
+    } else {
+        sessionStorage.removeItem('webmania_cached_video');
+    }
+    window.location.href = 'game.html';
 }

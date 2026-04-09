@@ -5,7 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web Mania Next - Game</title>
-    <script src="https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js"></script>
+    <!-- 已移除原有的前端 ffmpeg 因为转移到了主菜单中处理 -->
+    <script src="https://cdn.jsdelivr.net/gh/phoboslab/jsmpeg@master/jsmpeg.min.js" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="css/common.css">
     <link rel="stylesheet" href="css/game.css">
 </head>
@@ -14,6 +15,8 @@
     <div id="game-screen" class="screen">
         <div id="game-bg"></div>
         <canvas id="bg-video-canvas"></canvas>
+
+        <video id="decoder-video" playsinline muted style="display: none;"></video>
 
         <div id="replay-badge" style="position: absolute; top: 15px; left: 50%; transform: translateX(-50%); background: rgba(52, 211, 153, 0.2); border: 1px solid #34d399; color: #34d399; padding: 6px 20px; border-radius: 20px; font-weight: 700; z-index: 100; display: none; text-shadow: 0 0 10px rgba(52, 211, 153, 0.6); letter-spacing: 1px; backdrop-filter: blur(5px);">观战中</div>
         
@@ -32,8 +35,6 @@
         <canvas id="game-canvas" width="800" height="800"></canvas>
         <div id="song-progress-container"><div id="song-progress-bar"></div></div>
     </div>
-
-    <!-- 已经移除了旧的 DOM overlay 进度条以提升性能 -->
 
     <div id="spectator-grid" class="screen"></div>
 

@@ -1,4 +1,4 @@
-// /public/js/game.js
+// /data/public/js/game.js
 const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
 const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
 
@@ -61,8 +61,11 @@ window.onload = async () => {
     currentLeaderboard = lbData ? JSON.parse(lbData) : [];
     
     if (isReplayMode) {
-        document.getElementById('replay-badge').style.display = 'block';
-        document.getElementById('replay-badge').innerText = `回放: ${replayData.player}`;
+        const replayBadge = document.getElementById('replay-badge');
+        if (replayBadge) {
+            replayBadge.style.display = 'block';
+            replayBadge.innerText = `回放: ${replayData.player}`;
+        }
         sessionStorage.removeItem('webmania_replay_data'); 
     }
 
@@ -96,27 +99,35 @@ window.onload = async () => {
         });
 
         socket.on('all_finished', results => {
-            document.getElementById('waiting-overlay').style.display = 'none';
+            const waitingOverlay = document.getElementById('waiting-overlay');
+            if (waitingOverlay) waitingOverlay.style.display = 'none';
             if (specClientUid) return; 
             
             showScreen('result-screen');
             
             if (role === 'spectator') {
-                document.getElementById('result-stats-container').style.display = 'none';
-                document.getElementById('result-grade').style.display = 'none';
-                document.querySelector('.result-title').innerText = "多人游戏结算";
+                const statsContainer = document.getElementById('result-stats-container');
+                const resultGrade = document.getElementById('result-grade');
+                const resultTitle = document.querySelector('.result-title');
+                if (statsContainer) statsContainer.style.display = 'none';
+                if (resultGrade) resultGrade.style.display = 'none';
+                if (resultTitle) resultTitle.innerText = "多人游戏结算";
             }
 
             const multiTable = document.getElementById('multi-res-table');
-            multiTable.style.display = 'table';
-            const tbody = multiTable.querySelector('tbody');
-            tbody.innerHTML = results.map((r, i) => `
-                <tr style="${r.uid === myUid ? 'background: rgba(59, 130, 246, 0.2)' : ''}">
-                    <td>#${i+1}</td><td><b>${r.name}</b> ${r.failed?'<span style="color:#ef4444;font-size:12px;">(失败)</span>':''}</td>
-                    <td style="color:#fbbf24; font-weight:bold;">${r.score.toString().padStart(7,'0')}</td>
-                    <td>${r.acc.toFixed(2)}%</td><td>${r.combo}x</td>
-                </tr>
-            `).join('');
+            if (multiTable) {
+                multiTable.style.display = 'table';
+                const tbody = multiTable.querySelector('tbody');
+                if (tbody) {
+                    tbody.innerHTML = results.map((r, i) => `
+                        <tr style="${r.uid === myUid ? 'background: rgba(59, 130, 246, 0.2)' : ''}">
+                            <td>#${i+1}</td><td><b>${r.name}</b> ${r.failed?'<span style="color:#ef4444;font-size:12px;">(失败)</span>':''}</td>
+                            <td style="color:#fbbf24; font-weight:bold;">${r.score.toString().padStart(7,'0')}</td>
+                            <td>${r.acc.toFixed(2)}%</td><td>${r.combo}x</td>
+                        </tr>
+                    `).join('');
+                }
+            }
         });
 
         socket.on('force_game_ended', () => {
@@ -134,9 +145,12 @@ window.onload = async () => {
         document.querySelector('.hud-details').style.display = 'none'; 
         document.getElementById('multi-lb').style.display = 'none';
         
-        document.getElementById('replay-badge').style.display = 'block';
-        const pName = roomInfo.players.find(p => p.uid === specClientUid)?.name || 'Unknown';
-        document.getElementById('replay-badge').innerText = `正在观战: ${pName}`;
+        const replayBadge = document.getElementById('replay-badge');
+        if (replayBadge) {
+            replayBadge.style.display = 'block';
+            const pName = roomInfo.players.find(p => p.uid === specClientUid)?.name || 'Unknown';
+            replayBadge.innerText = `正在观战: ${pName}`;
+        }
 
         await initGame(true); 
     } 
@@ -153,21 +167,65 @@ window.onload = async () => {
     } 
     else {
         document.getElementById('game-screen').classList.add('active');
-        if(isMulti) document.getElementById('multi-lb').style.display = 'flex';
+        if(isMulti) {
+            const multiLb = document.getElementById('multi-lb');
+            if (multiLb) multiLb.style.display = 'flex';
+        }
         await initGame(false);
+    }
+
+    const backBtn = document.getElementById('back-to-select');
+    if (backBtn) {
+        backBtn.onclick = () => quitGame();
+    }
+
+    if (userSettings.touchClick) {
+        const canvas = document.getElementById('game-canvas');
+        if (canvas) {
+            canvas.addEventListener('touchstart', (e) => {
+                if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const touch = e.changedTouches[i];
+                    const x = touch.clientX - rect.left;
+                    const offsetX = (canvas.width - gameEngine.trackWidth) / 2;
+                    if (x >= offsetX && x <= offsetX + gameEngine.trackWidth) {
+                        const lane = Math.floor((x - offsetX) / gameEngine.laneWidth);
+                        if(lane >= 0 && lane < gameEngine.laneCount) {
+                            gameEngine.onKeyDown(lane);
+                            touch.webmaniaLane = lane; 
+                        }
+                    }
+                }
+            }, {passive: false});
+
+            canvas.addEventListener('touchend', (e) => {
+                if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
+                e.preventDefault();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const touch = e.changedTouches[i];
+                    if(touch.webmaniaLane !== undefined) {
+                        gameEngine.onKeyUp(touch.webmaniaLane);
+                    }
+                }
+            }, {passive: false});
+        }
     }
 };
 
 function updateSpecClientHUD(data) {
     if(data.failed && gameEngine && !gameEngine.state.failed) {
         gameEngine.state.failed = true;
-        document.getElementById('game-canvas').style.filter = 'grayscale(1)';
+        const canvas = document.getElementById('game-canvas');
+        if (canvas) canvas.style.filter = 'grayscale(1)';
     }
 }
 
 function updateLeaderboard() {
     if(!isMulti || role === 'spectator') return;
     const lb = document.getElementById('multi-lb');
+    if (!lb) return;
     const sorted = Object.values(playerScores).sort((a,b) => b.score - a.score);
     lb.innerHTML = sorted.map((p, i) => `
         <div class="multi-lb-item ${p.failed ? 'failed' : ''}">
@@ -289,44 +347,62 @@ class GameEngine {
 
         this.lastMultiSend = 0;
 
-        this.hudScore.innerText = '0000000';
-        this.hudAcc.innerText = '100.00%';
-        this.hudPP.innerText = '0';
-        this.hudUR.innerText = '0.00';
-        this.hudRank.innerText = '';
-        document.getElementById('hud-combo').style.display = 'none';
-        document.getElementById('hud-combo').innerText = '0x';
-        document.getElementById('game-canvas').style.filter = 'none';
-        this.progressBar.style.width = '0%';
+        if (this.hudScore) this.hudScore.innerText = '0000000';
+        if (this.hudAcc) this.hudAcc.innerText = '100.00%';
+        if (this.hudPP) this.hudPP.innerText = '0';
+        if (this.hudUR) this.hudUR.innerText = '0.00';
+        if (this.hudRank) this.hudRank.innerText = '';
+        const hudCombo = document.getElementById('hud-combo');
+        if (hudCombo) {
+            hudCombo.style.display = 'none';
+            hudCombo.innerText = '0x';
+        }
+        if (this.canvas) this.canvas.style.filter = 'none';
+        if (this.progressBar) this.progressBar.style.width = '0%';
 
         this.lastFrameTime = performance.now();
         this.frameCount = 0;
         this.fpsUpdateTime = 0;
 
         if (userSettings.uiScale) {
-            document.querySelector('.game-hud').style.transform = `scale(${userSettings.uiScale})`;
-            document.querySelector('.game-hud').style.transformOrigin = 'top left';
-            document.getElementById('hud-rank').style.transform = `scale(${userSettings.uiScale})`;
-            document.getElementById('hud-rank').style.transformOrigin = 'top right';
+            const gameHud = document.querySelector('.game-hud');
+            if (gameHud) {
+                gameHud.style.transform = `scale(${userSettings.uiScale})`;
+                gameHud.style.transformOrigin = 'top left';
+            }
+            if (this.hudRank) {
+                this.hudRank.style.transform = `scale(${userSettings.uiScale})`;
+                this.hudRank.style.transformOrigin = 'top right';
+            }
         }
 
-        this.masterGain = this.audioCtx.createGain();
-        this.masterGain.connect(this.audioCtx.destination);
-        this.musicGain = this.audioCtx.createGain();
-        this.musicGain.connect(this.masterGain);
-        
-        this.hitSounds = loadedHitSounds;
-        this.sfxGain = this.audioCtx.createGain();
-        this.sfxGain.connect(this.masterGain);
+        try {
+            this.masterGain = this.audioCtx.createGain();
+            this.masterGain.connect(this.audioCtx.destination);
+            this.musicGain = this.audioCtx.createGain();
+            this.musicGain.connect(this.masterGain);
+            
+            this.hitSounds = loadedHitSounds;
+            this.sfxGain = this.audioCtx.createGain();
+            this.sfxGain.connect(this.masterGain);
 
-        const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
-        const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
-        const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
-        const sfxVol = (userSettings.sfxVol !== undefined ? userSettings.sfxVol : 100) / 100;
+            const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+            const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+            const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+            const sfxVol = (userSettings.sfxVol !== undefined ? userSettings.sfxVol : 100) / 100;
 
-        this.masterGain.gain.value = document.hasFocus() ? mVol : bgVol;
-        this.musicGain.gain.value = muVol;
-        this.sfxGain.gain.value = sfxVol;
+            if (this.masterGain && this.masterGain.gain) {
+                this.masterGain.gain.value = document.hasFocus() ? mVol : bgVol;
+            }
+            if (this.musicGain && this.musicGain.gain) {
+                this.musicGain.gain.value = muVol;
+            }
+            if (this.sfxGain && this.sfxGain.gain) {
+                this.sfxGain.gain.value = sfxVol;
+            }
+        } catch (e) {
+            console.warn("Audio Context Node setup encountered a problem", e);
+        }
 
         let volTimeout;
         const checkVolume = () => {
@@ -337,10 +413,14 @@ class GameEngine {
                     ? (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) 
                     : (userSettings.bgVol !== undefined ? userSettings.bgVol : 50)) / 100;
 
-                if (this.masterGain && this.audioCtx.state === 'running') {
-                    this.masterGain.gain.setTargetAtTime(targetVol, this.audioCtx.currentTime, 0.2);
-                } else if (this.masterGain) {
-                    this.masterGain.gain.value = targetVol;
+                if (this.masterGain && this.masterGain.gain) {
+                    try {
+                        if (this.audioCtx.state === 'running') {
+                            this.masterGain.gain.setTargetAtTime(targetVol, this.audioCtx.currentTime, 0.2);
+                        } else {
+                            this.masterGain.gain.value = targetVol;
+                        }
+                    } catch(e) {}
                 }
             }, 150); 
         };
@@ -360,7 +440,8 @@ class GameEngine {
     start() {
         this.audioSource = this.audioCtx.createBufferSource();
         this.audioSource.buffer = this.audioBuffer;
-        this.audioSource.connect(this.musicGain);
+        if (this.musicGain) this.audioSource.connect(this.musicGain);
+        else this.audioSource.connect(this.audioCtx.destination);
         
         const delaySeconds = this.spectatorDelay / 1000;
         this.fallbackStartTime = performance.now() + this.spectatorDelay;
@@ -393,10 +474,14 @@ class GameEngine {
         
         if (window.videoPlayer) window.videoPlayer.pause();
         
-        document.getElementById('pause-screen').classList.add('active');
-        document.getElementById('pause-title').style.display = 'block';
-        document.getElementById('pause-buttons').style.display = 'flex';
-        document.getElementById('pause-countdown-text').style.display = 'none';
+        const pauseScreen = document.getElementById('pause-screen');
+        if (pauseScreen) pauseScreen.classList.add('active');
+        const pauseTitle = document.getElementById('pause-title');
+        if (pauseTitle) pauseTitle.style.display = 'block';
+        const pauseBtns = document.getElementById('pause-buttons');
+        if (pauseBtns) pauseBtns.style.display = 'flex';
+        const countdownText = document.getElementById('pause-countdown-text');
+        if (countdownText) countdownText.style.display = 'none';
     }
 
     quit() {
@@ -446,28 +531,36 @@ class GameEngine {
 
     playHitSound(buffer, volumeScale = 1.0) {
         if (!this.audioCtx || !buffer) return;
-        const source = this.audioCtx.createBufferSource();
-        source.buffer = buffer;
-        const gainNode = this.audioCtx.createGain();
-        gainNode.gain.value = volumeScale;
-        source.connect(gainNode);
-        gainNode.connect(this.sfxGain);
-        source.start(0);
+        try {
+            const source = this.audioCtx.createBufferSource();
+            source.buffer = buffer;
+            const gainNode = this.audioCtx.createGain();
+            if (gainNode && gainNode.gain) gainNode.gain.value = volumeScale;
+            source.connect(gainNode);
+            if (this.sfxGain) gainNode.connect(this.sfxGain);
+            else gainNode.connect(this.audioCtx.destination);
+            source.start(0);
+        } catch(e) {}
     }
 
     playDefaultHitSound() {
         if (!this.audioCtx) return;
-        const osc = this.audioCtx.createOscillator();
-        const gain = this.audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(600, this.audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, this.audioCtx.currentTime + 0.05);
-        gain.gain.setValueAtTime(0.4, this.audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.05);
-        osc.connect(gain);
-        gain.connect(this.sfxGain);
-        osc.start(this.audioCtx.currentTime);
-        osc.stop(this.audioCtx.currentTime + 0.05);
+        try {
+            const osc = this.audioCtx.createOscillator();
+            const gain = this.audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, this.audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(100, this.audioCtx.currentTime + 0.05);
+            if (gain && gain.gain) {
+                gain.gain.setValueAtTime(0.4, this.audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.05);
+            }
+            osc.connect(gain);
+            if (this.sfxGain) gain.connect(this.sfxGain);
+            else gain.connect(this.audioCtx.destination);
+            osc.start(this.audioCtx.currentTime);
+            osc.stop(this.audioCtx.currentTime + 0.05);
+        } catch(e) {}
     }
 
     addJudge(type, diff = 0, lane = -1, isTail = false) {
@@ -487,7 +580,7 @@ class GameEngine {
         
         if (this.state.hp <= 0 && !this.state.failed) {
             this.state.failed = true;
-            document.getElementById('game-canvas').style.filter = 'grayscale(1)';
+            if (this.canvas) this.canvas.style.filter = 'grayscale(1)';
             if (!isMulti && !this.isReplay && !this.isSpectator) {
                 this.endGame(); return; 
             }
@@ -588,18 +681,19 @@ class GameEngine {
     }
 
     updateHUD() {
-        this.hudScore.innerText = this.state.scoreV2.toString().padStart(7, '0');
-        this.hudAcc.innerText = this.state.acc.toFixed(2) + '%';
-        this.hudPP.innerText = this.state.currentPP;
-        this.hudUR.innerText = this.calculateUR().toFixed(2);
+        if (this.hudScore) this.hudScore.innerText = this.state.scoreV2.toString().padStart(7, '0');
+        if (this.hudAcc) this.hudAcc.innerText = this.state.acc.toFixed(2) + '%';
+        if (this.hudPP) this.hudPP.innerText = this.state.currentPP;
+        if (this.hudUR) this.hudUR.innerText = this.calculateUR().toFixed(2);
         
-        document.getElementById('hud-combo').innerText = this.state.combo + 'x';
+        const hudCombo = document.getElementById('hud-combo');
+        if (hudCombo) hudCombo.innerText = this.state.combo + 'x';
         
         if (!isMulti && !this.isReplay && this.leaderboard.length > 0 && this.state.scoreV2 > 0) {
             let rank = 1; for (let s of this.leaderboard) { if (this.state.scoreV2 < s._realScore) rank++; }
-            this.hudRank.innerText = '#' + rank;
+            if (this.hudRank) this.hudRank.innerText = '#' + rank;
         } else {
-            this.hudRank.innerText = '';
+            if (this.hudRank) this.hudRank.innerText = '';
         }
     }
 
@@ -700,7 +794,7 @@ class GameEngine {
 
         const now = this.getTime();
         
-        if (this.totalLengthMs > 0) {
+        if (this.totalLengthMs > 0 && this.progressBar) {
             let prog = (now / this.totalLengthMs) * 100;
             if (prog > 100) prog = 100;
             if (prog < 0) prog = 0;
@@ -913,7 +1007,6 @@ class GameEngine {
             }
         }
 
-        // --- 全新 Canvas 原生渲染的进度条 (重试 & 返回房间) ---
         if (typeof retryProgress !== 'undefined' && retryProgress > 0) {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.fillRect(offsetX, canvas.height / 2 - 50, this.trackWidth, 100);
@@ -980,7 +1073,7 @@ async function initGame(isSpectating) {
         let filterStr = `brightness(${(100 - (userSettings.bgDim !== undefined ? userSettings.bgDim : 80)) / 100})`;
         if (userSettings.bgBlur > 0) filterStr += ` blur(${userSettings.bgBlur}px)`;
 
-        if (selectedMap.bgPath) {
+        if (selectedMap.bgPath && gameBgEl) {
             const bgUrl = `${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.bgPath)}`;
             gameBgEl.style.backgroundImage = `url("${bgUrl}")`;
             gameBgEl.style.filter = filterStr;
@@ -1011,49 +1104,110 @@ async function initGame(isSpectating) {
         if (parsed.videoPath && userSettings.noStoryboard !== true) {
             const cleanVideoPath = parsed.videoPath.trim();
             const fullVideoPath = selectedMap.dirPath + '/' + cleanVideoPath;
+            const cachedVideo = sessionStorage.getItem('webmania_cached_video');
             
-            gameBgEl.style.display = 'none';
-            videoCanvas.style.display = 'block';
-            videoCanvas.style.filter = filterStr;
-
-            const streamUrl = `${LOCAL_API_URL}/video_stream?path=${encodeURIComponent(fullVideoPath)}&hwAccel=${userSettings.hwAccel ? 'true' : 'false'}`;
-            if (window.videoPlayer) window.videoPlayer.destroy();
-            
-            class FetchStreamSource {
-                constructor(url, options) {
-                    this.url = url;
-                    this.destination = null;
-                }
-                connect(destination) { this.destination = destination; }
-                start() {
-                    fetch(this.url).then(res => {
-                        const reader = res.body.getReader();
-                        const pump = () => {
-                            reader.read().then(({value, done}) => {
-                                if (done) return;
-                                if (this.destination) this.destination.write(value);
-                                pump();
-                            });
-                        };
-                        pump();
-                    }).catch(console.error);
-                }
-                resume() {}
-                destroy() {}
+            if (gameBgEl) gameBgEl.style.display = 'none';
+            if (videoCanvas) {
+                videoCanvas.style.display = 'block';
+                videoCanvas.style.filter = filterStr;
             }
 
-            window.videoPlayer = new JSMpeg.Player(streamUrl, {
-                canvas: videoCanvas,
-                source: FetchStreamSource, 
-                loop: true,
-                autoplay: false, 
-                audio: false 
-            });
-        } else {
-            videoCanvas.style.display = 'none'; 
-            gameBgEl.style.display = 'block'; 
             if (window.videoPlayer) {
-                window.videoPlayer.destroy();
+                if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
+                window.videoPlayer = null;
+            }
+
+            let videoUrl = null;
+            let useNativePlayer = false;
+
+            if (cachedVideo) {
+                videoUrl = `${LOCAL_API_URL}/file?path=${encodeURIComponent(cachedVideo)}`;
+                useNativePlayer = true;
+            } else if (fullVideoPath.toLowerCase().endsWith('.mp4') || fullVideoPath.toLowerCase().endsWith('.webm')) {
+                videoUrl = `${LOCAL_API_URL}/file?path=${encodeURIComponent(fullVideoPath)}`;
+                useNativePlayer = true;
+            }
+
+            if (useNativePlayer && videoUrl) {
+                const decoderVideo = document.getElementById('decoder-video');
+                if (decoderVideo) {
+                    decoderVideo.src = videoUrl;
+                    decoderVideo.load();
+                    decoderVideo.muted = true;
+
+                    window.videoPlayer = {
+                        play: () => decoderVideo.play().catch(()=>{}),
+                        pause: () => decoderVideo.pause(),
+                        destroy: () => {
+                            decoderVideo.pause();
+                            decoderVideo.removeAttribute('src');
+                            decoderVideo.load();
+                            if (window.videoRenderLoopId) {
+                                cancelAnimationFrame(window.videoRenderLoopId);
+                                window.videoRenderLoopId = null;
+                            }
+                        }
+                    };
+
+                    decoderVideo.onloadedmetadata = () => {
+                        if (videoCanvas) {
+                            videoCanvas.width = decoderVideo.videoWidth;
+                            videoCanvas.height = decoderVideo.videoHeight;
+                        }
+                    };
+
+                    decoderVideo.onplay = () => {
+                        if (window.videoRenderLoopId) cancelAnimationFrame(window.videoRenderLoopId);
+                        const ctx = videoCanvas ? videoCanvas.getContext('2d') : null;
+                        function renderVideoLoop() {
+                            if (!decoderVideo.paused && !decoderVideo.ended && ctx && videoCanvas) {
+                                ctx.drawImage(decoderVideo, 0, 0, videoCanvas.width, videoCanvas.height);
+                            }
+                            window.videoRenderLoopId = requestAnimationFrame(renderVideoLoop);
+                        }
+                        renderVideoLoop();
+                    };
+                }
+            } else {
+                const streamUrl = `${LOCAL_API_URL}/video_stream?path=${encodeURIComponent(fullVideoPath)}&hwAccel=${userSettings.hwAccel ? 'true' : 'false'}`;
+                class FetchStreamSource {
+                    constructor(url, options) {
+                        this.url = url;
+                        this.destination = null;
+                    }
+                    connect(destination) { this.destination = destination; }
+                    start() {
+                        fetch(this.url).then(res => {
+                            const reader = res.body.getReader();
+                            const pump = () => {
+                                reader.read().then(({value, done}) => {
+                                    if (done) return;
+                                    if (this.destination) this.destination.write(value);
+                                    pump();
+                                });
+                            };
+                            pump();
+                        }).catch(()=>{});
+                    }
+                    resume() {}
+                    destroy() {}
+                }
+
+                if (videoCanvas) {
+                    window.videoPlayer = new JSMpeg.Player(streamUrl, {
+                        canvas: videoCanvas,
+                        source: FetchStreamSource, 
+                        loop: true,
+                        autoplay: false, 
+                        audio: false 
+                    });
+                }
+            }
+        } else {
+            if (videoCanvas) videoCanvas.style.display = 'none'; 
+            if (gameBgEl) gameBgEl.style.display = 'block'; 
+            if (window.videoPlayer) {
+                if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
                 window.videoPlayer = null;
             }
         }
@@ -1061,7 +1215,7 @@ async function initGame(isSpectating) {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
         if (userSettings.audioDevice && userSettings.audioDevice !== 'default') {
-            if (audioCtx.setSinkId) await audioCtx.setSinkId(userSettings.audioDevice);
+            if (audioCtx.setSinkId) await audioCtx.setSinkId(userSettings.audioDevice).catch(()=>{});
         }
 
         const audioRes = await fetch(`${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.audioPath)}`);
@@ -1086,7 +1240,7 @@ async function initGame(isSpectating) {
                     const buffer = await audioCtx.decodeAudioData(arrayBuffer);
                     loadedHitSounds[filename] = buffer;
                 }
-            } catch (e) { console.warn('未能加载自定义音效文件:', filename); }
+            } catch (e) {}
         });
         await Promise.all(fetchPromises);
 
@@ -1200,6 +1354,7 @@ function parseOsuFile(osuText) {
 }
 
 function animateValue(obj, start, end, duration, formatStr = false) {
+    if (!obj) return;
     let startTimestamp = null;
     const step = (timestamp) => {
         if (!startTimestamp) startTimestamp = timestamp;
@@ -1217,7 +1372,7 @@ function animateValue(obj, start, end, duration, formatStr = false) {
 
 function onGameEnd(result) {
     if (window.videoPlayer) {
-        window.videoPlayer.destroy();
+        if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
         window.videoPlayer = null;
     }
 
@@ -1239,26 +1394,37 @@ function onGameEnd(result) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(scorePayload)
-        }).catch(e => console.error("归档失败:", e));
+        }).catch(()=>{});
     }
     
     if (isMulti && socket) {
         socket.emit('multi_game_end', { score: result.score, combo: result.combo, acc: result.acc, failed: result.failed });
-        document.getElementById('waiting-overlay').style.display = 'flex';
+        const waitingOverlay = document.getElementById('waiting-overlay');
+        if (waitingOverlay) waitingOverlay.style.display = 'flex';
     } else {
         showScreen('result-screen');
     }
 
-    if (isReplayMode) document.querySelector('.result-title').innerText = "回放结束";
+    if (isReplayMode) {
+        const resultTitle = document.querySelector('.result-title');
+        if (resultTitle) resultTitle.innerText = "回放结束";
+    }
 
     if (selectedMap && !specClientUid && role !== 'spectator') {
-        document.getElementById('res-meta-title').innerText = selectedMap.title;
-        document.getElementById('res-meta-artist').innerText = selectedMap.artist + " // " + selectedMap.version;
+        const titleEl = document.getElementById('res-meta-title');
+        const artistEl = document.getElementById('res-meta-artist');
+        const starsEl = document.getElementById('res-meta-stars');
+        const bgContainer = document.getElementById('res-bg-container');
+
+        if (titleEl) titleEl.innerText = selectedMap.title;
+        if (artistEl) artistEl.innerText = selectedMap.artist + " // " + selectedMap.version;
         const stars = selectedMap.stars || getFakeStars(selectedMap.version);
-        document.getElementById('res-meta-stars').innerText = stars.toFixed(2) + ' ★';
-        document.getElementById('res-meta-stars').style.color = getStarColor(stars);
-        if (selectedMap.bgPath) {
-            document.getElementById('res-bg-container').style.backgroundImage = `url("${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.bgPath)}")`;
+        if (starsEl) {
+            starsEl.innerText = stars.toFixed(2) + ' ★';
+            starsEl.style.color = getStarColor(stars);
+        }
+        if (selectedMap.bgPath && bgContainer) {
+            bgContainer.style.backgroundImage = `url("${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.bgPath)}")`;
         }
     }
 
@@ -1266,19 +1432,29 @@ function onGameEnd(result) {
     const failedEl = document.getElementById('result-failed');
     const statsContainer = document.getElementById('result-stats-container');
 
-    gradeEl.classList.remove('show');
-    gradeEl.className = `result-grade color-${result.grade.toLowerCase()}`;
-    gradeEl.innerText = result.grade;
+    if (gradeEl) {
+        gradeEl.classList.remove('show');
+        gradeEl.className = `result-grade color-${result.grade.toLowerCase()}`;
+        gradeEl.innerText = result.grade;
+    }
 
     if (result.failed) {
-        failedEl.style.display = 'block'; gradeEl.style.display = 'none'; statsContainer.style.opacity = '0.5';
+        if (failedEl) failedEl.style.display = 'block';
+        if (gradeEl) gradeEl.style.display = 'none';
+        if (statsContainer) statsContainer.style.opacity = '0.5';
     } else {
-        failedEl.style.display = 'none'; gradeEl.style.display = 'block'; statsContainer.style.opacity = '1';
+        if (failedEl) failedEl.style.display = 'none';
+        if (gradeEl) gradeEl.style.display = 'block';
+        if (statsContainer) statsContainer.style.opacity = '1';
+
         if (result.grade !== 'F' && !isMulti && !isReplayMode) { 
             const histKey = selectedMap.id;
             const ranks = { 'SS':6, 'S':5, 'A':4, 'B':3, 'C':2, 'D':1, 'F':0 };
             const oldRank = history[histKey] ? ranks[history[histKey]] : -1;
-            if (ranks[result.grade] > oldRank) { history[histKey] = result.grade; localStorage.setItem('webmania_history', JSON.stringify(history)); }
+            if (ranks[result.grade] > oldRank) { 
+                history[histKey] = result.grade; 
+                localStorage.setItem('webmania_history', JSON.stringify(history)); 
+            }
         }
     }
 
@@ -1286,17 +1462,28 @@ function onGameEnd(result) {
     if (totalNotes === 0) totalNotes = 1;
 
     animateValue(document.getElementById('res-max'), 0, result.stats.max, 1500);
-    document.getElementById('bar-max').style.width = (result.stats.max / totalNotes * 100) + '%';
+    const barMax = document.getElementById('bar-max');
+    if (barMax) barMax.style.width = (result.stats.max / totalNotes * 100) + '%';
+
     animateValue(document.getElementById('res-300'), 0, result.stats.p300, 1500);
-    document.getElementById('bar-300').style.width = (result.stats.p300 / totalNotes * 100) + '%';
+    const bar300 = document.getElementById('bar-300');
+    if (bar300) bar300.style.width = (result.stats.p300 / totalNotes * 100) + '%';
+
     animateValue(document.getElementById('res-200'), 0, result.stats.p200, 1500);
-    document.getElementById('bar-200').style.width = (result.stats.p200 / totalNotes * 100) + '%';
+    const bar200 = document.getElementById('bar-200');
+    if (bar200) bar200.style.width = (result.stats.p200 / totalNotes * 100) + '%';
+
     animateValue(document.getElementById('res-100'), 0, result.stats.p100, 1500);
-    document.getElementById('bar-100').style.width = (result.stats.p100 / totalNotes * 100) + '%';
+    const bar100 = document.getElementById('bar-100');
+    if (bar100) bar100.style.width = (result.stats.p100 / totalNotes * 100) + '%';
+
     animateValue(document.getElementById('res-50'), 0, result.stats.p50, 1500);
-    document.getElementById('bar-50').style.width = (result.stats.p50 / totalNotes * 100) + '%';
+    const bar50 = document.getElementById('bar-50');
+    if (bar50) bar50.style.width = (result.stats.p50 / totalNotes * 100) + '%';
+
     animateValue(document.getElementById('res-miss'), 0, result.stats.miss, 1500);
-    document.getElementById('bar-miss').style.width = (result.stats.miss / totalNotes * 100) + '%';
+    const barMiss = document.getElementById('bar-miss');
+    if (barMiss) barMiss.style.width = (result.stats.miss / totalNotes * 100) + '%';
 
     animateValue(document.getElementById('res-score'), 0, result.score, 2000);
     animateValue(document.getElementById('res-combo'), 0, result.combo, 1500, val => Math.floor(val) + 'x');
@@ -1307,18 +1494,21 @@ function onGameEnd(result) {
         let rank = 1; for (let s of currentLeaderboard) { if (result.score < s._realScore) rank++; }
         simulatedRank = '#' + rank;
     }
-    document.getElementById('res-rank').innerText = simulatedRank;
+    const resRank = document.getElementById('res-rank');
+    if (resRank) resRank.innerText = simulatedRank;
 
     animateValue(document.getElementById('res-acc'), 0, result.acc, 2000, val => val.toFixed(2) + '%');
-    setTimeout(() => { gradeEl.classList.add('show'); }, 500);
+    setTimeout(() => { if (gradeEl) gradeEl.classList.add('show'); }, 500);
 }
 
 function resumeGame() {
     isResuming = true;
-    document.getElementById('pause-title').style.display = 'none'; 
-    document.getElementById('pause-buttons').style.display = 'none';
+    const pauseTitle = document.getElementById('pause-title');
+    if (pauseTitle) pauseTitle.style.display = 'none'; 
+    const pauseBtns = document.getElementById('pause-buttons');
+    if (pauseBtns) pauseBtns.style.display = 'none';
     const countdownEl = document.getElementById('pause-countdown-text'); 
-    countdownEl.style.display = 'block';
+    if (countdownEl) countdownEl.style.display = 'block';
     
     if (userSettings.autoKiosk && !specClientUid) {
         fetch(`${LOCAL_API_URL}/kiosk`, { 
@@ -1333,20 +1523,23 @@ function resumeGame() {
     }
     
     let count = 3; 
-    countdownEl.innerText = count;
+    if (countdownEl) countdownEl.innerText = count;
     
     resumeInterval = setInterval(() => {
         count--;
         if (count > 0) {
-            countdownEl.innerText = count;
+            if (countdownEl) countdownEl.innerText = count;
         } else {
             clearInterval(resumeInterval); 
             isResuming = false;
-            document.getElementById('pause-screen').classList.remove('active');
+            const pauseScreen = document.getElementById('pause-screen');
+            if (pauseScreen) pauseScreen.classList.remove('active');
             if (gameEngine) {
                 gameEngine.isPaused = false;
                 if (gameEngine.audioCtx.state === 'suspended') gameEngine.audioCtx.resume();
-                if (window.videoPlayer) window.videoPlayer.play();
+                if (window.videoPlayer) {
+                    if (typeof window.videoPlayer.play === 'function') window.videoPlayer.play();
+                }
                 requestAnimationFrame(gameEngine.loop.bind(gameEngine));
             }
         }
@@ -1356,23 +1549,38 @@ function resumeGame() {
 function retryGame() { 
     if(isResuming) clearInterval(resumeInterval);
     isResuming = false;
-    document.getElementById('pause-screen').classList.remove('active'); 
-    if (window.videoPlayer) { window.videoPlayer.destroy(); window.videoPlayer = null; }
+    const pauseScreen = document.getElementById('pause-screen');
+    if (pauseScreen) pauseScreen.classList.remove('active'); 
+    
+    if (window.videoPlayer) { 
+        if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
+        window.videoPlayer = null; 
+    }
     
     if (gameEngine) {
         gameEngine.quit();
         gameEngine = null; 
     }
     
-    document.getElementById('hud-score').innerText = '0000000';
-    document.getElementById('hud-acc').innerText = '100.00%';
-    document.getElementById('hud-pp').innerText = '0';
-    document.getElementById('hud-ur').innerText = '0.00';
-    document.getElementById('hud-rank').innerText = '';
-    document.getElementById('hud-combo').style.display = 'none';
-    document.getElementById('hud-combo').innerText = '0x';
-    document.getElementById('game-canvas').style.filter = 'none';
-    document.getElementById('song-progress-bar').style.width = '0%';
+    const hudScore = document.getElementById('hud-score');
+    if (hudScore) hudScore.innerText = '0000000';
+    const hudAcc = document.getElementById('hud-acc');
+    if (hudAcc) hudAcc.innerText = '100.00%';
+    const hudPP = document.getElementById('hud-pp');
+    if (hudPP) hudPP.innerText = '0';
+    const hudUR = document.getElementById('hud-ur');
+    if (hudUR) hudUR.innerText = '0.00';
+    const hudRank = document.getElementById('hud-rank');
+    if (hudRank) hudRank.innerText = '';
+    const hudCombo = document.getElementById('hud-combo');
+    if (hudCombo) {
+        hudCombo.style.display = 'none';
+        hudCombo.innerText = '0x';
+    }
+    const gameCanvas = document.getElementById('game-canvas');
+    if (gameCanvas) gameCanvas.style.filter = 'none';
+    const progressBar = document.getElementById('song-progress-bar');
+    if (progressBar) progressBar.style.width = '0%';
 
     initGame(false); 
 }
@@ -1380,8 +1588,13 @@ function retryGame() {
 function quitGame() { 
     if(isResuming) clearInterval(resumeInterval);
     isResuming = false;
-    document.getElementById('pause-screen').classList.remove('active'); 
-    if (window.videoPlayer) { window.videoPlayer.destroy(); window.videoPlayer = null; }
+    const pauseScreen = document.getElementById('pause-screen');
+    if (pauseScreen) pauseScreen.classList.remove('active'); 
+    
+    if (window.videoPlayer) { 
+        if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
+        window.videoPlayer = null; 
+    }
     
     if (isMulti && socket && gameEngine && gameEngine.isRunning && !gameEngine.state.failed) {
         socket.emit('multi_game_end', { 
@@ -1414,8 +1627,6 @@ function quitGame() {
     }, 50);
 }
 
-document.getElementById('back-to-select').onclick = () => quitGame();
-
 window.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') {
         e.preventDefault();
@@ -1435,9 +1646,12 @@ window.addEventListener('keydown', (e) => {
                     if (isResuming) {
                         clearInterval(resumeInterval);
                         isResuming = false;
-                        document.getElementById('pause-countdown-text').style.display = 'none';
-                        document.getElementById('pause-title').style.display = 'block';
-                        document.getElementById('pause-buttons').style.display = 'flex';
+                        const countdownEl = document.getElementById('pause-countdown-text');
+                        if (countdownEl) countdownEl.style.display = 'none';
+                        const pauseTitle = document.getElementById('pause-title');
+                        if (pauseTitle) pauseTitle.style.display = 'block';
+                        const pauseBtns = document.getElementById('pause-buttons');
+                        if (pauseBtns) pauseBtns.style.display = 'flex';
                     } else {
                         resumeGame();
                     }
@@ -1487,35 +1701,3 @@ window.addEventListener('keyup', (e) => {
         gameEngine.onKeyUp(KEY_MAP[e.code]); 
     }
 });
-
-if (userSettings.touchClick) {
-    const canvas = document.getElementById('game-canvas');
-    canvas.addEventListener('touchstart', (e) => {
-        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            const touch = e.changedTouches[i];
-            const x = touch.clientX - rect.left;
-            const offsetX = (canvas.width - gameEngine.trackWidth) / 2;
-            if (x >= offsetX && x <= offsetX + gameEngine.trackWidth) {
-                const lane = Math.floor((x - offsetX) / gameEngine.laneWidth);
-                if(lane >= 0 && lane < gameEngine.laneCount) {
-                    gameEngine.onKeyDown(lane);
-                    touch.webmaniaLane = lane; 
-                }
-            }
-        }
-    }, {passive: false});
-
-    canvas.addEventListener('touchend', (e) => {
-        if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
-        e.preventDefault();
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            const touch = e.changedTouches[i];
-            if(touch.webmaniaLane !== undefined) {
-                gameEngine.onKeyUp(touch.webmaniaLane);
-            }
-        }
-    }, {passive: false});
-}
