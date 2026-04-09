@@ -20,7 +20,10 @@ try { if (fs.existsSync(configPath)) sysConfig = JSON.parse(fs.readFileSync(conf
 
 if (sysConfig.renderer === 'd3d12') app.commandLine.appendSwitch('use-angle', 'd3d12');
 else if (sysConfig.renderer === 'd3d11') app.commandLine.appendSwitch('use-angle', 'd3d11');
-else if (sysConfig.renderer === 'graphite') app.commandLine.appendSwitch('enable-skia-graphite');
+else if (sysConfig.renderer === 'graphite') {
+    app.commandLine.appendSwitch('enable-features', 'SkiaGraphite'); // 注意是 SkiaGraphite
+    app.commandLine.appendSwitch('use-dawn-backend', 'd3d12'); 
+}
 
 global.USER_DATA_PATH = userDataPath;
 
