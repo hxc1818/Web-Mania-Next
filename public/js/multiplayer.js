@@ -51,7 +51,7 @@ function updateRoomAudioVolume() {
         } else {
             setRoomAudioVolumeSmoothly(targetVol);
         }
-    }, 150); // 增加防抖延迟
+    }, 150); 
 }
 
 window.addEventListener('blur', updateRoomAudioVolume);
@@ -234,7 +234,11 @@ function openCreateRoomMapSelector() {
     isCreatingRoom = true;
     document.getElementById('select-overlay').style.display = 'flex';
     const iframe = document.getElementById('select-iframe');
-    if (!iframe.src) iframe.src = 'index.html?selector=true';
+    // 修复逻辑：检查当前 src 是否是选谱页面，如果为空或无效则重新加载
+    const currentSrc = iframe.src || '';
+    if (currentSrc === '' || currentSrc === 'about:blank' || !currentSrc.includes('index.html')) {
+        iframe.src = 'index.html?selector=true';
+    }
 }
 
 function createRoom() {
@@ -576,13 +580,18 @@ function openMultiMapSelector() {
     isCreatingRoom = false;
     document.getElementById('select-overlay').style.display = 'flex';
     const iframe = document.getElementById('select-iframe');
-    if (!iframe.src || iframe.src.includes('filterDir')) iframe.src = 'index.html?selector=true';
+    const currentSrc = iframe.src || '';
+    // 修复：逻辑改进，确保每次点击如果当前不是基础选谱页，都重新加载
+    if (currentSrc === '' || currentSrc === 'about:blank' || currentSrc.includes('filterDir') || !currentSrc.includes('index.html')) {
+        iframe.src = 'index.html?selector=true';
+    }
 }
 
 function closeMapSelector() { 
     document.getElementById('select-overlay').style.display = 'none'; 
     const iframe = document.getElementById('select-iframe');
-    iframe.src = ''; 
+    // 使用 about:blank 更稳健地清除内容
+    iframe.src = 'about:blank'; 
 }
 
 window.addEventListener('message', async e => {
