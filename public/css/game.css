@@ -24,8 +24,7 @@ canvas#game-canvas { z-index: 1; box-shadow: 0 0 60px rgba(0,0,0,0.8); border-le
 
 #pause-screen { z-index: 100; background: rgba(0,0,0,0.85); justify-content: center; align-items: center; backdrop-filter: blur(10px); }
 .pause-title { font-size: 50px; font-weight: 800; letter-spacing: 5px; margin-bottom: 40px; color: #fff; text-shadow: 0 0 20px rgba(255,255,255,0.5); }
-.pause-btn { background: #1a1a24; color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 15px 50px; font-size: 18px; font-weight: 600; border-radius: 12px; cursor: pointer; width: 250px; margin-bottom: 15px; transition: all 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-.pause-btn:hover { background: #3b82f6; border-color: #3b82f6; transform: scale(1.05); }
+
 #pause-countdown-text { font-size: 100px; font-weight: 800; color: #3b82f6; display: none; text-shadow: 0 0 30px rgba(59, 130, 246, 0.8); }
 
 #result-screen { justify-content: center; align-items: center; position: relative; background: radial-gradient(circle at center, #1e1e28 0%, #0f0f13 100%); overflow-y: auto; }
@@ -42,8 +41,6 @@ canvas#game-canvas { z-index: 1; box-shadow: 0 0 60px rgba(0,0,0,0.8); border-le
 .stat-col { display: flex; flex-direction: column; gap: 12px; font-size: 18px; font-weight: 600; }
 .stat-row { display: flex; justify-content: space-between; width: 200px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px; }
 .stat-acc { font-size: 60px; font-weight: 800; color: #60a5fa; text-align: right; text-shadow: 0 5px 20px rgba(96, 165, 250, 0.3); line-height: 1; }
-.back-btn { position: absolute; top: 40px; left: 40px; background: rgba(255,255,255,0.1); padding: 12px 30px; border-radius: 12px; cursor: pointer; color: white; border: none; font-size: 15px; font-weight: 600; transition: all 0.2s; backdrop-filter: blur(5px); z-index: 10; }
-.back-btn:hover { background: rgba(255,255,255,0.2); transform: translateX(-5px); }
 
 .multi-lb { position: absolute; top: 150px; left: 40px; z-index: 10; width: 250px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .multi-lb-item { background: rgba(20,20,30,0.8); padding: 10px 15px; border-radius: 8px; border-left: 4px solid #3b82f6; display: flex; justify-content: space-between; align-items: center; backdrop-filter: blur(5px); transition: 0.3s; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }

@@ -21,15 +21,85 @@ body, html {
 .setup-desc { color: #aaa; margin-bottom: 30px; font-size: 14px; }
 .setup-input { width: 100%; padding: 12px 15px; font-size: 15px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; outline: none; transition: border-color 0.2s; margin-bottom: 15px; }
 .setup-input:focus { border-color: #3b82f6; }
-.setup-btn { padding: 12px 30px; background: #3b82f6; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-.setup-btn:hover { background: #60a5fa; transform: translateY(-2px); box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3); }
 
-.top-btn { position: absolute; top: 30px; background: rgba(30,30,40,0.8); padding: 10px 20px; border-radius: 8px; cursor: pointer; color: #fff; font-size: 14px; font-weight: 600; transition: all 0.2s ease; z-index: 10; backdrop-filter: blur(5px); }
-.top-btn:hover { background: rgba(50,50,60,0.9); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+/* 🌟 全新全局按钮样式 (OsuButton) 🌟 */
+.osu-btn {
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+    color: white;
+    font-weight: 500;
+    font-size: 15px;
+    height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    outline: none;
+    cursor: pointer;
+    border: none;
+    background-color: #5f46b3;
+    z-index: 1;
+    text-decoration: none;
+    padding: 0 24px;
+    white-space: nowrap;
+}
+
+.osu-btn:active { transform: scale(0.96); }
+.osu-btn:hover { background-color: #7356d9; }
+.osu-btn:focus-visible { box-shadow: 0 0 0 2px #9966ff; }
+
+/* 变体 (Variants) */
+.osu-btn.danger { background-color: #d23e70; }
+.osu-btn.danger:hover { background-color: #e6457a; }
+
+.osu-btn.success { background-color: #10b981; }
+.osu-btn.success:hover { background-color: #34d399; }
+
+.osu-btn.secondary { background-color: #4b5563; }
+.osu-btn.secondary:hover { background-color: #6b7280; }
+
+/* 尺寸调节 (Small variant) */
+.osu-btn-sm {
+    height: 36px;
+    font-size: 13px;
+    padding: 0 16px;
+    border-radius: 6px;
+}
+
+/* 🌟 动画三角形背景 (Animated Triangles) 🌟 */
+.osu-btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: -1;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+    mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='85' height='85' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.3)' stroke-width='3'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='55' height='55' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.3)' stroke-width='3'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.2)' stroke-width='3'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='65' height='65' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.2)' stroke-width='3'/%3E%3C/svg%3E");
+    background-repeat: repeat-y;
+    animation: osu-btn-triangles 3s linear infinite;
+}
+
+@keyframes osu-btn-triangles {
+    0% { background-position: 15% 0px, 75% 0px, 85% 0px, 25% 0px; }
+    100% { background-position: 15% -85px, 75% -55px, 85% -40px, 25% -65px; }
+}
+
+/* 顶部角落按钮定位辅助 */
+.top-btn-pos {
+    position: absolute;
+    top: 30px;
+    z-index: 10;
+}
 
 #context-menu { position: absolute; background: #1a1a24; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 5px 0; min-width: 150px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); z-index: 1000; display: none; }
 .cm-item { padding: 10px 20px; color: #eee; cursor: pointer; font-size: 14px; transition: 0.2s; }
-.cm-item:hover { background: #3b82f6; }
+.cm-item:hover { background: #5f46b3; }
 .fav-indicator { color: #fbbf24; margin-right: 5px; font-weight: bold; }
 
 .color-ss { color: #fbbf24; text-shadow: 0 0 20px rgba(251, 191, 36, 0.4); } 
@@ -40,7 +110,6 @@ body, html {
 .color-d { color: #ef4444; text-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }
 .color-f { color: #71717a; text-shadow: 0 0 20px rgba(113, 113, 122, 0.4); }
 
-/* 关键修复：绝妙的透明边框配合 background-clip 来实现悬停变粗却不挤压UI */
 ::-webkit-scrollbar { width: 11px; background: transparent; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { 

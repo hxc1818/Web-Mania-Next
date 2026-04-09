@@ -1,4 +1,3 @@
-<!-- /public/game.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -48,10 +47,10 @@
     <div id="pause-screen" class="screen">
         <div class="pause-title" id="pause-title">已暂停</div>
         <div id="pause-countdown-text">3</div>
-        <div id="pause-buttons" style="display: flex; flex-direction: column; align-items: center;">
-            <button class="pause-btn" onclick="resumeGame()">继续</button>
-            <button class="pause-btn" onclick="retryGame()">重试</button>
-            <button class="pause-btn" onclick="quitGame()">退出</button>
+        <div id="pause-buttons" style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
+            <button class="osu-btn" style="width: 250px; font-size: 18px;" onclick="resumeGame()">继续</button>
+            <button class="osu-btn secondary" style="width: 250px; font-size: 18px;" onclick="retryGame()">重试</button>
+            <button class="osu-btn danger" style="width: 250px; font-size: 18px;" onclick="quitGame()">退出</button>
         </div>
     </div>
 
@@ -62,7 +61,7 @@
 
     <div id="result-screen" class="screen">
         <div id="res-bg-container"></div>
-        <button id="back-to-select" class="back-btn">返回大厅</button>
+        <button id="back-to-select" class="osu-btn secondary top-btn-pos" style="left: 40px;">返回大厅</button>
         
         <div id="res-meta">
             <div id="res-meta-title">Title</div>

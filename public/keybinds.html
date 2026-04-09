@@ -1,30 +1,22 @@
-<!-- /public/keybinds.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web Mania Next Keybinds</title>
+    <link rel="stylesheet" href="css/common.css">
     <style>
         * { box-sizing: border-box; user-select: none; }
-        body { margin: 0; padding: 20px; background: #0f0f13; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        body { margin: 0; padding: 20px; background: #0f0f13; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden;}
         h1 { color: #3b82f6; margin-top: 0; border-bottom: 2px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
         .layout { display: flex; flex: 1; gap: 20px; overflow: hidden; }
         .left-panel { width: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
-        .k-btn { background: rgba(255,255,255,0.1); border: none; padding: 15px; color: #ccc; border-radius: 8px; cursor: pointer; transition: 0.2s; font-weight: bold; font-size: 16px; }
-        .k-btn:hover { background: rgba(255,255,255,0.2); }
-        .k-btn.active { background: #3b82f6; color: #fff; }
         .right-panel { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 20px; border: 1px solid rgba(255,255,255,0.1); }
         .lane-row { display: flex; align-items: center; margin-bottom: 15px; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; }
         .lane-label { width: 60px; font-weight: bold; color: #fbbf24; }
         .bind-input { flex: 1; margin: 0 5px; background: #1a1a24; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 12px; text-align: center; border-radius: 6px; cursor: pointer; outline: none; font-family: monospace; font-size: 14px; transition: 0.2s; }
         .bind-input:focus { border-color: #3b82f6; background: rgba(59, 130, 246, 0.2); box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
         .bottom-bar { padding-top: 15px; display: flex; justify-content: flex-end; gap: 10px; }
-        .btn { padding: 12px 25px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-cancel { background: #4b5563; color: #fff; }
-        .btn-cancel:hover { background: #6b7280; }
-        .btn-save { background: #10b981; color: #fff; }
-        .btn-save:hover { background: #34d399; }
         .hint { font-size: 12px; color: #aaa; margin-bottom: 20px; }
     </style>
 </head>
@@ -36,8 +28,8 @@
         <div class="right-panel" id="binds-container"></div>
     </div>
     <div class="bottom-bar">
-        <button class="btn btn-cancel" onclick="window.close()">取消 (Cancel)</button>
-        <button class="btn btn-save" onclick="saveBinds()">保存并关闭 (Save)</button>
+        <button class="osu-btn secondary" onclick="window.close()">取消 (Cancel)</button>
+        <button class="osu-btn success" onclick="saveBinds()">保存并关闭 (Save)</button>
     </div>
 
     <script>
@@ -60,8 +52,11 @@
             list.innerHTML = '';
             for(let i=1; i<=18; i++) {
                 const btn = document.createElement('button');
-                btn.className = `k-btn ${i === currentK ? 'active' : ''}`;
+                btn.className = `osu-btn ${i === currentK ? '' : 'secondary'}`;
                 btn.innerText = `${i}K`;
+                btn.style.width = '100%';
+                btn.style.height = '48px';
+                btn.style.marginBottom = '5px';
                 btn.onclick = () => { currentK = i; renderKList(); renderBinds(); };
                 list.appendChild(btn);
             }

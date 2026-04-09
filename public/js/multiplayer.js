@@ -302,8 +302,8 @@ function updateRoomUI() {
                     <span style="font-size:11px; color:#60a5fa; margin-top:4px; font-weight:bold;">[提供者: ${m.adderName || '房主'}]</span>
                 </div>
                 <div class="queue-item-actions">
-                    ${!hasLocal && m.url ? `<div class="queue-item-btn queue-item-dl" onclick="downloadMapFromQueue(${i})">下载文件</div>` : ''}
-                    ${canDelete ? `<div class="queue-item-btn queue-item-remove" onclick="socket.emit('remove_from_queue', ${i})">移除</div>` : ''}
+                    ${!hasLocal && m.url ? `<div class="osu-btn osu-btn-sm" onclick="downloadMapFromQueue(${i})">下载文件</div>` : ''}
+                    ${canDelete ? `<div class="osu-btn osu-btn-sm danger" onclick="socket.emit('remove_from_queue', ${i})">移除</div>` : ''}
                 </div>
             </div>`;
         }).join('');
@@ -379,8 +379,7 @@ function updateRoomUI() {
         specBtn.style.display = 'none';
         if (isHost && me.status !== 'playing') {
             actBtn.innerText = '长按结束比赛';
-            actBtn.style.background = '#ef4444'; actBtn.style.color = '#fff';
-            actBtn.style.boxShadow = '0 4px 15px rgba(239, 68, 68, 0.4)';
+            actBtn.className = 'osu-btn danger';
             
             let forceEndTimer;
             actBtn.onmousedown = () => {
@@ -396,6 +395,7 @@ function updateRoomUI() {
             };
         } else {
             actBtn.innerText = '加入观战';
+            actBtn.className = 'osu-btn';
             actBtn.onclick = () => {
                 sessionStorage.setItem('webmania_multi', 'true');
                 sessionStorage.setItem('webmania_multi_room', JSON.stringify(roomData));
@@ -409,65 +409,54 @@ function updateRoomUI() {
                 isNavigatingToGame = true;
                 window.location.href = 'game.html';
             };
-            actBtn.style.background = '#8b5cf6'; actBtn.style.color = '#fff';
-            actBtn.style.boxShadow = '0 4px 15px rgba(139, 92, 246, 0.4)';
         }
     } else {
-        specBtn.style.display = 'block';
+        specBtn.style.display = 'flex';
         specBtn.innerText = me.status === 'spectating' ? '停止观战' : '切换观战';
         specBtn.onclick = () => socket.emit('change_status', me.status === 'spectating' ? 'idle' : 'spectating');
-        specBtn.style.color = me.status === 'spectating' ? '#c4b5fd' : '#ccc';
-        specBtn.style.borderColor = me.status === 'spectating' ? '#8b5cf6' : 'rgba(255,255,255,0.2)';
-        specBtn.style.background = me.status === 'spectating' ? 'rgba(139, 92, 246, 0.1)' : 'transparent';
-
-        actBtn.style.boxShadow = 'none';
+        specBtn.className = me.status === 'spectating' ? 'osu-btn' : 'osu-btn secondary';
 
         if (!currentMap) {
             actBtn.innerText = '等待队列添加谱面';
+            actBtn.className = 'osu-btn secondary';
             actBtn.onclick = null;
-            actBtn.style.background = '#4b5563'; actBtn.style.color = '#fff';
         } else if (me.status === 'nomap') {
             if (currentMap.url) {
                 actBtn.innerText = '一键下载谱面';
+                actBtn.className = 'osu-btn';
                 actBtn.onclick = () => executeDownload(currentMap);
-                actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
-                actBtn.style.boxShadow = '0 4px 15px rgba(59, 130, 246, 0.4)';
             } else {
                 actBtn.innerText = '无法获取 (房主未分享)';
+                actBtn.className = 'osu-btn danger';
                 actBtn.onclick = null;
-                actBtn.style.background = '#ef4444'; actBtn.style.color = '#fff';
             }
         } else if (me.status === 'spectating' && !checkLocalMap(currentMap)) {
             if (currentMap.url) {
                 actBtn.innerText = '下载谱面以实时观战';
+                actBtn.className = 'osu-btn';
                 actBtn.onclick = () => executeDownload(currentMap);
-                actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
             } else {
                 actBtn.innerText = '无法观战 (未找到本地谱面)';
+                actBtn.className = 'osu-btn danger';
                 actBtn.onclick = null;
-                actBtn.style.background = '#ef4444'; actBtn.style.color = '#fff';
             }
         } else if (me.status === 'downloading') {
             actBtn.innerText = '正在极速下载中...';
+            actBtn.className = 'osu-btn';
             actBtn.onclick = null;
-            actBtn.style.background = '#3b82f6'; actBtn.style.color = '#fff';
         } else if (me.status === 'idle' || me.status === 'finished') {
             actBtn.innerText = '准备就绪';
+            actBtn.className = 'osu-btn success';
             actBtn.onclick = () => socket.emit('change_status', 'ready');
-            actBtn.style.background = '#10b981'; actBtn.style.color = '#fff';
-            actBtn.style.boxShadow = '0 4px 15px rgba(16, 185, 129, 0.4)';
         } else if (me.status === 'ready' || me.status === 'spectating') {
             if (isHost) {
                 actBtn.innerText = '强制开始游戏';
+                actBtn.className = 'osu-btn danger';
                 actBtn.onclick = () => socket.emit('start_game');
-                actBtn.style.background = '#d946ef'; actBtn.style.color = '#fff';
-                actBtn.style.boxShadow = '0 4px 15px rgba(217, 70, 239, 0.4)';
             } else {
                 actBtn.innerText = me.status === 'ready' ? '取消准备状态' : '正在等待房主';
+                actBtn.className = me.status === 'ready' ? 'osu-btn' : 'osu-btn secondary';
                 actBtn.onclick = me.status === 'ready' ? () => socket.emit('change_status', 'idle') : null;
-                actBtn.style.background = me.status === 'ready' ? '#f59e0b' : '#4b5563'; 
-                actBtn.style.color = '#fff'; 
-                if (me.status === 'ready') actBtn.style.boxShadow = '0 4px 15px rgba(245, 158, 11, 0.4)';
             }
         }
     }

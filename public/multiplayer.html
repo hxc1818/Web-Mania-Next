@@ -1,4 +1,3 @@
-<!-- /public/multiplayer.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -21,12 +20,12 @@
             <div class="setup-desc">输入您的游戏昵称以进入多人大厅</div>
             <div id="login-error" style="color:#ef4444; margin-bottom: 15px; font-weight: bold; display: none; background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px;"></div>
             <input type="text" id="username-input" class="setup-input" placeholder="例如: RhythmMaster">
-            <button class="setup-btn" style="width: 100%; margin-top: 10px; font-size: 16px; padding: 14px;" onclick="joinMultiLobby()">连接大厅</button>
+            <button class="osu-btn" style="width: 100%; margin-top: 10px;" onclick="joinMultiLobby()">连接大厅</button>
         </div>
     </div>
 
     <div id="multi-lobby-screen" class="screen">
-        <div class="top-btn" style="right: 40px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; padding: 12px 24px; font-size: 15px;" onclick="showCreateRoomModal()">+ 创建房间</div>
+        <div class="osu-btn top-btn-pos" style="right: 40px; height: 42px; padding: 0 20px;" onclick="showCreateRoomModal()">+ 创建房间</div>
         <div class="multi-layout">
             <div class="panel" style="flex: 1;">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(255,255,255,0.05); padding-bottom: 15px; margin-bottom: 20px;">
@@ -39,7 +38,7 @@
     </div>
 
     <div id="multi-room-screen" class="screen">
-        <div class="top-btn" style="left: 40px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); padding: 10px 20px;" onclick="leaveRoom()">退出房间</div>
+        <div class="osu-btn danger top-btn-pos" style="left: 40px; height: 42px; padding: 0 20px;" onclick="leaveRoom()">退出房间</div>
         <div class="multi-layout">
             
             <div class="panel" style="flex: 1.2;">
@@ -52,12 +51,12 @@
                 <div id="upload-status" style="text-align: center; color:#60a5fa; height: 20px; font-size: 13px; font-weight: 600; margin-bottom: 10px;"></div>
 
                 <div style="display: flex; gap: 12px; margin-bottom: 20px;">
-                    <button class="setup-btn" style="flex: 1; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.1);" onclick="openMultiMapSelector()">从本地库添加谱面</button>
+                    <button class="osu-btn secondary" style="flex: 1;" onclick="openMultiMapSelector()">从本地库添加谱面</button>
                 </div>
 
                 <div style="display: flex; gap: 16px; margin-top: auto;">
-                    <button class="setup-btn" id="btn-spectate" style="flex: 1; background: transparent; border: 2px solid rgba(255,255,255,0.15); color: #ddd; font-size: 16px;">观战</button>
-                    <button class="setup-btn" id="btn-action" style="flex: 2; background: #10b981; font-size: 18px; font-weight: 800; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);">准备</button>
+                    <button class="osu-btn secondary" id="btn-spectate" style="flex: 1;">观战</button>
+                    <button class="osu-btn success" id="btn-action" style="flex: 2; font-size: 18px; font-weight: 800;">准备</button>
                 </div>
             </div>
             
@@ -74,7 +73,7 @@
                     <div id="chat-messages" class="chat-messages"></div>
                     <div class="chat-input-area">
                         <input type="text" id="chat-input" class="chat-input" placeholder="输入消息开始交流..." onkeypress="if(event.key==='Enter') sendChat()">
-                        <button class="chat-send-btn" onclick="sendChat()">发送</button>
+                        <button class="osu-btn" style="height: 48px;" onclick="sendChat()">发送</button>
                     </div>
                 </div>
             </div>
@@ -91,12 +90,12 @@
             
             <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.2); text-align: center;">
                 <div id="create-room-map-name" style="font-size: 14px; font-weight: bold; color: #34d399; margin-bottom: 10px;">尚未选择初始谱面</div>
-                <button class="setup-btn" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; padding: 8px 16px; font-size: 13px;" onclick="openCreateRoomMapSelector()">浏览本地曲库</button>
+                <button class="osu-btn secondary osu-btn-sm" onclick="openCreateRoomMapSelector()">浏览本地曲库</button>
             </div>
 
             <div style="display: flex; gap: 12px; margin-top: 15px;">
-                <button class="setup-btn" style="flex:1; background: rgba(255,255,255,0.1); color: #ccc;" onclick="closeCreateRoomModal()">取消</button>
-                <button class="setup-btn" style="flex:2; background: #3b82f6; font-weight: bold;" onclick="createRoom()">确认创建</button>
+                <button class="osu-btn secondary" style="flex:1;" onclick="closeCreateRoomModal()">取消</button>
+                <button class="osu-btn" style="flex:2;" onclick="createRoom()">确认创建</button>
             </div>
         </div>
     </div>
@@ -108,8 +107,8 @@
             <div style="text-align: center; color: #aaa; font-size: 14px; margin-bottom: 10px;">该房间已被房主加密，请输入通行密码。</div>
             <input type="password" id="join-room-pass" class="setup-input" placeholder="请输入密码..." style="text-align: center; font-size: 16px; letter-spacing: 2px;">
             <div style="display: flex; gap: 12px; margin-top: 10px;">
-                <button class="setup-btn" style="flex:1; background: rgba(255,255,255,0.1); color: #ccc;" onclick="closePasswordModal()">取消</button>
-                <button class="setup-btn" style="flex:1; background: #10b981; font-weight: bold;" onclick="submitJoinPassword()">验证并加入</button>
+                <button class="osu-btn secondary" style="flex:1;" onclick="closePasswordModal()">取消</button>
+                <button class="osu-btn success" style="flex:1;" onclick="submitJoinPassword()">验证并加入</button>
             </div>
         </div>
     </div>
