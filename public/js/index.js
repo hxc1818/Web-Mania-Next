@@ -1,4 +1,260 @@
 // /public/js/index.js
+class OsuSlider {
+    constructor(containerId, options) {
+        this.container = document.getElementById(containerId);
+        if (!this.container) return;
+        this.labelKey = options.labelKey;
+        this.defaultValue = options.defaultValue;
+        this.min = options.min || 0;
+        this.max = options.max || 100;
+        this.value = options.value !== undefined ? options.value : this.defaultValue;
+        this.onChange = options.onChange;
+        this.formatter = options.formatter || (v => v);
+        this.step = options.step || 1;
+
+        this.typingStr = null;
+        this.isDragging = false;
+
+        this.buildDOM();
+        this.attachEvents();
+        this.updateVisuals();
+    }
+
+    buildDOM() {
+        const lang = userSettings.language || 'zh';
+        const translatedLabel = (i18nDict[lang] && i18nDict[lang][this.labelKey]) ? i18nDict[lang][this.labelKey] : this.labelKey;
+        
+        this.container.innerHTML = `
+            <div class="osu-slider-wrapper" tabindex="0">
+                <div class="osu-slider-main">
+                    <div class="slider-left">
+                        <span class="slider-label" data-i18n="${this.labelKey}">${translatedLabel}</span>
+                        <div class="slider-value-container">
+                            <span class="slider-value"></span>
+                        </div>
+                    </div>
+                    <div class="slider-track">
+                        <div class="slider-fill"></div>
+                        <div class="slider-thumb"></div>
+                    </div>
+                </div>
+                <div class="slider-reset">
+                    <button class="slider-reset-btn" title="重置为默认值">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        this.wrapper = this.container.querySelector('.osu-slider-wrapper');
+        this.valDisplay = this.container.querySelector('.slider-value');
+        this.track = this.container.querySelector('.slider-track');
+        this.fill = this.container.querySelector('.slider-fill');
+        this.thumb = this.container.querySelector('.slider-thumb');
+        this.resetContainer = this.container.querySelector('.slider-reset');
+        this.resetBtn = this.container.querySelector('.slider-reset-btn');
+    }
+
+    setValue(val, triggerOnChange = true) {
+        let newVal = typeof val === 'string' ? parseFloat(val) : val;
+        if (isNaN(newVal)) return;
+        newVal = Math.max(this.min, Math.min(this.max, newVal));
+        
+        if (this.step && this.step !== 1) {
+            const inv = 1.0 / this.step;
+            newVal = Math.round(newVal * inv) / inv;
+        } else {
+            newVal = Math.round(newVal);
+        }
+
+        if (this.value !== newVal) {
+            this.value = newVal;
+            if (triggerOnChange) this.onChange(this.value);
+        }
+        this.updateVisuals();
+    }
+
+    updateVisuals() {
+        let percent = ((this.value - this.min) / (this.max - this.min)) * 100;
+        percent = Math.max(0, Math.min(100, percent));
+        this.fill.style.width = `${percent}%`;
+        this.thumb.style.left = `${percent}%`;
+        this.thumb.style.opacity = percent > 0 ? '1' : '0.8';
+
+        if (this.typingStr !== null) {
+            this.valDisplay.innerHTML = `<span class="slider-typing">${this.typingStr}</span>`;
+        } else {
+            this.valDisplay.innerText = this.formatter(this.value);
+        }
+
+        if (this.value !== this.defaultValue) {
+            this.resetContainer.classList.add('show');
+        } else {
+            this.resetContainer.classList.remove('show');
+        }
+    }
+
+    updateFromEvent(e) {
+        const rect = this.track.getBoundingClientRect();
+        let percent = (e.clientX - rect.left) / rect.width;
+        percent = Math.max(0, Math.min(1, percent));
+        const val = percent * (this.max - this.min) + this.min;
+        this.setValue(val);
+        this.typingStr = null;
+    }
+
+    attachEvents() {
+        this.track.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            this.track.setPointerCapture(e.pointerId);
+            this.isDragging = true;
+            this.updateFromEvent(e);
+            this.wrapper.focus();
+        });
+
+        this.track.addEventListener('pointermove', (e) => {
+            if (this.isDragging) this.updateFromEvent(e);
+        });
+
+        const endDrag = (e) => {
+            this.isDragging = false;
+            this.track.releasePointerCapture(e.pointerId);
+        };
+        this.track.addEventListener('pointerup', endDrag);
+        this.track.addEventListener('pointercancel', endDrag);
+
+        this.wrapper.addEventListener('blur', () => {
+            this.typingStr = null;
+            this.updateVisuals();
+        });
+
+        this.wrapper.addEventListener('keydown', (e) => {
+            if ((e.key >= '0' && e.key <= '9') || e.key === '-' || e.key === '.') {
+                e.preventDefault();
+                this.typingStr = (this.typingStr === null ? '' : this.typingStr) + e.key;
+                if(this.typingStr.length > 5) this.typingStr = this.typingStr.slice(0, 5);
+                this.updateVisuals();
+            } else if (e.key === 'Backspace') {
+                e.preventDefault();
+                if (this.typingStr !== null) {
+                    this.typingStr = this.typingStr.slice(0, -1);
+                    if (this.typingStr.length === 0) this.typingStr = null;
+                    this.updateVisuals();
+                }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (this.typingStr !== null) {
+                    this.setValue(this.typingStr);
+                    this.typingStr = null;
+                    this.updateVisuals();
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                this.typingStr = null;
+                this.updateVisuals();
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                this.setValue(this.value + this.step);
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                this.setValue(this.value - this.step);
+            }
+        });
+
+        this.resetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.setValue(this.defaultValue);
+            this.typingStr = null;
+            this.updateVisuals();
+        });
+    }
+}
+
+class OsuToggle {
+    constructor(containerId, options) {
+        this.container = document.getElementById(containerId);
+        if (!this.container) return;
+        this.labelKey = options.labelKey;
+        this.defaultValue = options.defaultValue || false;
+        this.value = options.value !== undefined ? options.value : this.defaultValue;
+        this.onChange = options.onChange;
+
+        this.buildDOM();
+        this.attachEvents();
+        this.updateVisuals();
+    }
+
+    buildDOM() {
+        const lang = userSettings.language || 'zh';
+        const translatedLabel = (i18nDict[lang] && i18nDict[lang][this.labelKey]) ? i18nDict[lang][this.labelKey] : this.labelKey;
+        
+        this.container.innerHTML = `
+            <div class="osu-toggle-wrapper" tabindex="0">
+                <div class="osu-toggle-main">
+                    <div class="toggle-left">
+                        <span class="toggle-label" data-i18n="${this.labelKey}">${translatedLabel}</span>
+                    </div>
+                    <div class="toggle-right">
+                        <div class="toggle-graphic"></div>
+                    </div>
+                </div>
+                <div class="toggle-reset slider-reset">
+                    <button class="slider-reset-btn" title="重置为默认值">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        this.wrapper = this.container.querySelector('.osu-toggle-wrapper');
+        this.main = this.container.querySelector('.osu-toggle-main');
+        this.graphic = this.container.querySelector('.toggle-graphic');
+        this.resetContainer = this.container.querySelector('.toggle-reset');
+        this.resetBtn = this.container.querySelector('.slider-reset-btn');
+    }
+
+    setValue(val, triggerOnChange = true) {
+        if (this.value !== val) {
+            this.value = val;
+            if (triggerOnChange) this.onChange(this.value);
+        }
+        this.updateVisuals();
+    }
+
+    updateVisuals() {
+        if (this.value) {
+            this.graphic.classList.add('on');
+            this.graphic.classList.remove('off');
+        } else {
+            this.graphic.classList.add('off');
+            this.graphic.classList.remove('on');
+        }
+
+        if (this.value !== this.defaultValue) {
+            this.resetContainer.classList.add('show');
+        } else {
+            this.resetContainer.classList.remove('show');
+        }
+    }
+
+    attachEvents() {
+        this.main.addEventListener('click', () => {
+            this.setValue(!this.value);
+        });
+
+        this.wrapper.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                this.setValue(!this.value);
+            }
+        });
+
+        this.resetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.setValue(this.defaultValue);
+        });
+    }
+}
+
+
 let beatmaps = [];
 let mapGroups = {};
 let selectedMap = null;
@@ -35,7 +291,6 @@ const bgObserver = new IntersectionObserver((entries, obs) => {
     });
 }, { rootMargin: '200px 0px' });
 
-// 平滑调整音量函数
 function setAudioVolumeSmoothly(audioElem, targetVol, duration = 300) {
     if(!audioElem) return;
     if (audioElem.fadeInterval) clearInterval(audioElem.fadeInterval);
@@ -56,7 +311,6 @@ function setAudioVolumeSmoothly(audioElem, targetVol, duration = 300) {
     }, stepTime);
 }
 
-// 关键修复：确保音量为 0 时真正静音，并且加入平滑过渡，增加防抖防止误触发失焦BUG
 let volTimeout;
 function updatePreviewVolume() {
     clearTimeout(volTimeout);
@@ -71,15 +325,13 @@ function updatePreviewVolume() {
             if (targetVol < 0) targetVol = 0;
             if (targetVol > 1) targetVol = 1;
             
-            // 如果目前是暂停状态或者刚刚加载完准备播放，则瞬间设好音量防惊吓
             if (previewAudio.paused || previewAudio.currentTime === 0) {
                 previewAudio.volume = targetVol;
             } else {
-                // 平滑过渡
                 setAudioVolumeSmoothly(previewAudio, targetVol);
             }
         }
-    }, 150); // 延迟检测，滤除DOM焦点闪烁
+    }, 150); 
 }
 
 window.addEventListener('blur', updatePreviewVolume);
@@ -107,7 +359,6 @@ window.addEventListener('DOMContentLoaded', () => {
     if (isSelector) {
         document.querySelector('.mode-switcher').style.display = 'none';
         document.getElementById('settings-btn').style.display = 'none';
-        // 如果是指定过滤目录（比如拖拽上传后），隐藏顶部搜索栏以防止干扰
         if (filterDir) {
             const searchBar = document.getElementById('search-bar-container');
             if (searchBar) searchBar.style.display = 'none';
@@ -147,22 +398,17 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 function initSettingsUI() {
-    const bindEl = (id, prop, type = 'value', unit = '', formatter = null, onChange = null) => {
+    const bindEl = (id, prop, type = 'value', onChange = null) => {
         const el = document.getElementById(id);
         if(!el) return;
         if(type === 'value') {
             el.value = userSettings[prop];
-            const valEl = document.getElementById(`${id}-val`);
-            if(valEl) valEl.innerText = formatter ? formatter(el.value) : el.value + unit;
-            el.addEventListener('input', (e) => {
+            el.addEventListener('change', (e) => {
                 let v = e.target.value;
-                if(el.type === 'range' && el.step && el.step.includes('.')) v = parseFloat(v);
-                else if(el.type === 'range') v = parseInt(v);
                 userSettings[prop] = v;
-                if(valEl) valEl.innerText = formatter ? formatter(v) : v + unit;
                 saveSettings();
                 
-                if (prop === 'renderer' || prop === 'fpsLimit') saveSysConfig();
+                if (prop === 'renderer' || prop === 'fpsLimit' || prop === 'threadMode') saveSysConfig();
                 if (prop === 'language') applyTranslations();
                 if (onChange) onChange();
             });
@@ -170,25 +416,67 @@ function initSettingsUI() {
     };
 
     bindEl('st-language', 'language');
-    bindEl('st-bgBlur', 'bgBlur', 'value', 'px');
-    bindEl('st-bgDim', 'bgDim', 'value', '%');
-    bindEl('st-scrollSpeed', 'scrollSpeed');
-    
-    bindEl('st-uiScale', 'uiScale', 'value', 'x', v => {
-        applyUIScale(); 
-        return parseFloat(v).toFixed(1) + 'x';
-    });
-    
-    bindEl('st-trackScale', 'trackScale', 'value', 'x', v => parseFloat(v).toFixed(1) + 'x');
-    bindEl('st-masterVol', 'masterVol', 'value', '%', null, updatePreviewVolume);
-    bindEl('st-bgVol', 'bgVol', 'value', '%', null, updatePreviewVolume);
-    bindEl('st-sfxVol', 'sfxVol', 'value', '%');
-    bindEl('st-musicVol', 'musicVol', 'value', '%', null, updatePreviewVolume);
-    bindEl('st-offset', 'offset', 'value', 'ms');
     bindEl('st-renderer', 'renderer');
     bindEl('st-fpsLimit', 'fpsLimit');
     bindEl('st-threadMode', 'threadMode');
     bindEl('st-audioDevice', 'audioDevice');
+
+    // 初始化全局滑块映射，用于被动式数值修改
+    window.osuSliders = {};
+    const initSlider = (id, prop, labelKey, min, max, step, defVal, formatStr, onChangeExtra) => {
+        if(!document.getElementById(id)) return;
+        window.osuSliders[prop] = new OsuSlider(id, {
+            labelKey: labelKey,
+            min: min,
+            max: max,
+            step: step,
+            defaultValue: defVal,
+            value: userSettings[prop] !== undefined ? userSettings[prop] : defVal,
+            formatter: formatStr,
+            onChange: (val) => {
+                userSettings[prop] = val;
+                saveSettings();
+                if (onChangeExtra) onChangeExtra(val);
+            }
+        });
+    };
+
+    initSlider('slider-bgBlur', 'bgBlur', 'bg_blur', 0, 50, 1, 8, v => v + 'px');
+    initSlider('slider-bgDim', 'bgDim', 'bg_dim', 0, 100, 1, 80, v => v + '%');
+    initSlider('slider-scrollSpeed', 'scrollSpeed', 'speed', 100, 4000, 10, 1000, v => v);
+    initSlider('slider-trackScale', 'trackScale', 'scale', 0.1, 4, 0.1, 1.0, v => v.toFixed(1) + 'x');
+    initSlider('slider-masterVol', 'masterVol', 'master_vol', 0, 100, 1, 100, v => v + '%', updatePreviewVolume);
+    initSlider('slider-bgVol', 'bgVol', 'bg_vol', 0, 100, 1, 50, v => v + '%', updatePreviewVolume);
+    initSlider('slider-sfxVol', 'sfxVol', 'sfx_vol', 0, 100, 1, 100, v => v + '%');
+    initSlider('slider-musicVol', 'musicVol', 'music_vol', 0, 100, 1, 100, v => v + '%', updatePreviewVolume);
+    initSlider('slider-offset', 'offset', 'audio_offset', -1000, 1000, 1, 0, v => v + 'ms');
+    initSlider('slider-uiScale', 'uiScale', 'ui_scale', 0.1, 4.0, 0.1, 1.0, v => v.toFixed(1) + 'x', () => applyUIScale());
+
+    // 初始化全局开关映射
+    window.osuToggles = {};
+    const initToggle = (id, prop, labelKey, defVal, onChangeExtra) => {
+        if(!document.getElementById(id)) return;
+        window.osuToggles[prop] = new OsuToggle(id, {
+            labelKey: labelKey,
+            defaultValue: defVal,
+            value: userSettings[prop] !== undefined ? userSettings[prop] : defVal,
+            onChange: (val) => {
+                userSettings[prop] = val;
+                saveSettings();
+                if (onChangeExtra) onChangeExtra(val);
+            }
+        });
+    };
+
+    initToggle('toggle-touchClick', 'touchClick', 'touch_click', false);
+    initToggle('toggle-hitErrorMeter', 'hitErrorMeter', 'hit_error', true);
+    initToggle('toggle-noStoryboard', 'noStoryboard', 'no_sb', false);
+    initToggle('toggle-autoOffset', 'autoOffset', 'auto_offset', false);
+    initToggle('toggle-autoKiosk', 'autoKiosk', 'auto_kiosk', false);
+    initToggle('toggle-desync', 'desync', 'desync', false);
+    initToggle('toggle-showFps', 'showFps', 'show_fps', true);
+    initToggle('toggle-hwAccel', 'hwAccel', 'hw_accel', false);
+    initToggle('toggle-enableHitSounds', 'enableHitSounds', 'enable_hitsounds', true);
 
     document.getElementById('st-folder').value = localStorage.getItem('wm_folderPath') || '';
     document.getElementById('st-folder').addEventListener('change', (e) => {
@@ -202,22 +490,6 @@ function initSettingsUI() {
         saveSettings();
     });
 
-    const initSwitch = (id, prop) => {
-        const el = document.getElementById(id);
-        if(!el) return;
-        if(userSettings[prop]) el.classList.add('on');
-        else el.classList.remove('on');
-    };
-    initSwitch('st-touchClick', 'touchClick');
-    initSwitch('st-hitErrorMeter', 'hitErrorMeter');
-    initSwitch('st-noStoryboard', 'noStoryboard');
-    initSwitch('st-autoOffset', 'autoOffset');
-    initSwitch('st-autoKiosk', 'autoKiosk');
-    initSwitch('st-desync', 'desync');
-    initSwitch('st-showFps', 'showFps');
-    initSwitch('st-hwAccel', 'hwAccel');
-    initSwitch('st-enableHitSounds', 'enableHitSounds');
-
     const kSel = document.getElementById('st-skin-keys');
     kSel.value = '4';
     renderSkinColors(4);
@@ -230,22 +502,6 @@ function initSettingsUI() {
         const btn = document.getElementById('btn-use-rec');
         btn.style.display = 'block';
         btn.innerText = (userSettings.language === 'en' ? 'Use Rec: ' : '使用推荐延迟: ') + parseInt(errStr) + 'ms';
-    }
-}
-
-function toggleSwitch(id) {
-    const el = document.getElementById(id);
-    const isOn = el.classList.toggle('on');
-    const propMap = {
-        'st-touchClick': 'touchClick', 'st-hitErrorMeter': 'hitErrorMeter',
-        'st-noStoryboard': 'noStoryboard', 'st-autoOffset': 'autoOffset',
-        'st-autoKiosk': 'autoKiosk', 'st-desync': 'desync',
-        'st-showFps': 'showFps', 'st-hwAccel': 'hwAccel',
-        'st-enableHitSounds': 'enableHitSounds'
-    };
-    if (propMap[id]) {
-        userSettings[propMap[id]] = isOn;
-        saveSettings();
     }
 }
 
@@ -346,8 +602,9 @@ function applyRecommendedOffset() {
     if (errStr && parseInt(errStr) !== 0) {
         userSettings.offset += parseInt(errStr);
         localStorage.setItem('webmania_last_error', '0');
-        document.getElementById('st-offset').value = userSettings.offset;
-        document.getElementById('st-offset-val').innerText = userSettings.offset + 'ms';
+        if(window.osuSliders && window.osuSliders['offset']) {
+            window.osuSliders['offset'].setValue(userSettings.offset, false);
+        }
         saveSettings();
         document.getElementById('btn-use-rec').style.display = 'none';
     }
@@ -449,9 +706,8 @@ document.getElementById('scan-btn').onclick = () => doScan(false);
 
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', async (e) => {
-    // 选谱界面只负责本地解析上传，不与多人游戏耦合（如果在单机模式下）
     e.preventDefault();
-    if(isSelector) return; // selector模式下不处理全局拖拽
+    if(isSelector) return;
 
     const files = e.dataTransfer.files;
     if (files.length > 0 && files[0].name.endsWith('.osz')) {

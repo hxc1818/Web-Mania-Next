@@ -129,51 +129,20 @@
             <section class="set-sec">
                 <h2 data-i18n="cat_input">输入</h2>
                 <button class="osu-btn" style="width:100%; margin-bottom: 15px;" onclick="openKeybinds()" data-i18n="config_keys">配置</button>
-                <div class="set-row-inline" onclick="toggleSwitch('st-touchClick')">
-                    <label data-i18n="touch_click">启用触屏点击</label>
-                    <div class="osu-switch-wrap"><div id="st-touchClick" class="osu-switch"></div></div>
-                </div>
+                <div id="toggle-touchClick" class="osu-toggle-placeholder"></div>
             </section>
 
             <!-- 界面 -->
             <section class="set-sec">
                 <h2 data-i18n="cat_ui">界面</h2>
-                <div class="set-row">
-                    <label data-i18n="bg_blur">游玩时背景模糊</label>
-                    <div class="range-container">
-                        <input type="range" id="st-bgBlur" class="osu-range" min="0" max="50">
-                        <span id="st-bgBlur-val" class="range-val">8px</span>
-                    </div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="bg_dim">游玩时背景暗化</label>
-                    <div class="range-container">
-                        <input type="range" id="st-bgDim" class="osu-range" min="0" max="100">
-                        <span id="st-bgDim-val" class="range-val">80%</span>
-                    </div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="speed">下落速度</label>
-                    <div class="range-container">
-                        <input type="range" id="st-scrollSpeed" class="osu-range" min="100" max="4000" step="10">
-                        <span id="st-scrollSpeed-val" class="range-val">1000</span>
-                    </div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="scale">轨道缩放</label>
-                    <div class="range-container">
-                        <input type="range" id="st-trackScale" class="osu-range" min="0.1" max="4" step="0.1">
-                        <span id="st-trackScale-val" class="range-val">1.0x</span>
-                    </div>
-                </div>
-                <div class="set-row-inline" onclick="toggleSwitch('st-hitErrorMeter')">
-                    <label data-i18n="hit_error">开启hiterrormeter</label>
-                    <div class="osu-switch-wrap"><div id="st-hitErrorMeter" class="osu-switch"></div></div>
-                </div>
-                <div class="set-row-inline" onclick="toggleSwitch('st-noStoryboard')">
-                    <label data-i18n="no_sb">不播放故事板的视频</label>
-                    <div class="osu-switch-wrap"><div id="st-noStoryboard" class="osu-switch"></div></div>
-                </div>
+                <!-- 🔥 全新设置推子占位符 🔥 -->
+                <div id="slider-bgBlur" class="osu-slider-placeholder"></div>
+                <div id="slider-bgDim" class="osu-slider-placeholder"></div>
+                <div id="slider-scrollSpeed" class="osu-slider-placeholder"></div>
+                <div id="slider-trackScale" class="osu-slider-placeholder"></div>
+                
+                <div id="toggle-hitErrorMeter" class="osu-toggle-placeholder"></div>
+                <div id="toggle-noStoryboard" class="osu-toggle-placeholder"></div>
             </section>
 
             <!-- 音频 -->
@@ -184,67 +153,25 @@
                     <select id="st-audioDevice" class="osu-select"></select>
                 </div>
                 
-                <div class="set-row-inline" onclick="toggleSwitch('st-enableHitSounds')">
-                    <label data-i18n="enable_hitsounds">开启按键音效</label>
-                    <div class="osu-switch-wrap"><div id="st-enableHitSounds" class="osu-switch"></div></div>
-                </div>
+                <div id="toggle-enableHitSounds" class="osu-toggle-placeholder"></div>
 
-                <div class="set-row">
-                    <label data-i18n="master_vol">主音量</label>
-                    <div class="range-container">
-                        <input type="range" id="st-masterVol" class="osu-range" min="0" max="100">
-                        <span id="st-masterVol-val" class="range-val">100%</span>
-                    </div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="bg_vol">主音量(当窗口失焦时)</label>
-                    <div class="range-container">
-                        <input type="range" id="st-bgVol" class="osu-range" min="0" max="100">
-                        <span id="st-bgVol-val" class="range-val">50%</span>
-                    </div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="sfx_vol">音效</label>
-                    <div class="range-container">
-                        <input type="range" id="st-sfxVol" class="osu-range" min="0" max="100">
-                        <span id="st-sfxVol-val" class="range-val">100%</span>
-                    </div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="music_vol">音乐</label>
-                    <div class="range-container">
-                        <input type="range" id="st-musicVol" class="osu-range" min="0" max="100">
-                        <span id="st-musicVol-val" class="range-val">100%</span>
-                    </div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="audio_offset">音频延迟</label>
-                    <div class="range-container">
-                        <input type="range" id="st-offset" class="osu-range" min="-1000" max="1000">
-                        <span id="st-offset-val" class="range-val">0ms</span>
-                    </div>
-                </div>
+                <div id="slider-masterVol" class="osu-slider-placeholder"></div>
+                <div id="slider-bgVol" class="osu-slider-placeholder"></div>
+                <div id="slider-sfxVol" class="osu-slider-placeholder"></div>
+                <div id="slider-musicVol" class="osu-slider-placeholder"></div>
+                <div id="slider-offset" class="osu-slider-placeholder"></div>
+                
                 <button class="osu-btn" id="btn-use-rec" style="width:100%; margin-bottom: 15px; display:none;" onclick="applyRecommendedOffset()" data-i18n="use_rec">使用推荐延迟</button>
-                <div class="set-row-inline" onclick="toggleSwitch('st-autoOffset')">
-                    <label data-i18n="auto_offset">游玩结束后自动校准延迟</label>
-                    <div class="osu-switch-wrap"><div id="st-autoOffset" class="osu-switch"></div></div>
-                </div>
+                <div id="toggle-autoOffset" class="osu-toggle-placeholder"></div>
             </section>
 
             <!-- 图像 -->
             <section class="set-sec">
                 <h2 data-i18n="cat_gfx">图像</h2>
-                <div class="set-row-inline" onclick="toggleSwitch('st-autoKiosk')">
-                    <label data-i18n="auto_kiosk">游玩时自动进入Kiosk模式</label>
-                    <div class="osu-switch-wrap"><div id="st-autoKiosk" class="osu-switch"></div></div>
-                </div>
-                <div class="set-row">
-                    <label data-i18n="ui_scale">UI缩放</label>
-                    <div class="range-container">
-                        <input type="range" id="st-uiScale" class="osu-range" min="0.1" max="4" step="0.1">
-                        <span id="st-uiScale-val" class="range-val">1.0x</span>
-                    </div>
-                </div>
+                <div id="toggle-autoKiosk" class="osu-toggle-placeholder"></div>
+                
+                <div id="slider-uiScale" class="osu-slider-placeholder"></div>
+                
                 <div class="set-row">
                     <label data-i18n="renderer">渲染器</label>
                     <select id="st-renderer" class="osu-select">
@@ -275,14 +202,9 @@
                         <option value="multi" data-i18n="multi_thread">多线程</option>
                     </select>
                 </div>
-                <div class="set-row-inline" onclick="toggleSwitch('st-showFps')">
-                    <label data-i18n="show_fps">显示帧率</label>
-                    <div class="osu-switch-wrap"><div id="st-showFps" class="osu-switch"></div></div>
-                </div>
-                <div class="set-row-inline" onclick="toggleSwitch('st-hwAccel')">
-                    <label data-i18n="hw_accel">播放背景视频时使用硬件加速</label>
-                    <div class="osu-switch-wrap"><div id="st-hwAccel" class="osu-switch"></div></div>
-                </div>
+                <div id="toggle-desync" class="osu-toggle-placeholder"></div>
+                <div id="toggle-showFps" class="osu-toggle-placeholder"></div>
+                <div id="toggle-hwAccel" class="osu-toggle-placeholder"></div>
             </section>
 
             <!-- 在线 -->
