@@ -912,6 +912,61 @@ class GameEngine {
                 if (vidEl) vidEl.style.filter = filterStr;
             }
         }
+
+        // --- 全新 Canvas 原生渲染的进度条 (重试 & 返回房间) ---
+        if (typeof retryProgress !== 'undefined' && retryProgress > 0) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(offsetX, canvas.height / 2 - 50, this.trackWidth, 100);
+
+            const barMaxWidth = this.trackWidth * 0.8;
+            const barWidth = barMaxWidth * (retryProgress / 100);
+            const barX = offsetX + (this.trackWidth - barMaxWidth) / 2;
+            const barY = canvas.height / 2 + 10;
+            
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#3b82f6';
+            ctx.fillStyle = '#3b82f6'; 
+            ctx.fillRect(barX, barY, barWidth, 8);
+            ctx.shadowBlur = 0;
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(barX, barY + 2, barWidth, 4);
+
+            ctx.font = '800 22px Segoe UI';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.fillText('快速重试...', offsetX + this.trackWidth / 2, barY - 15);
+            ctx.shadowBlur = 0;
+        }
+
+        if (typeof escProgress !== 'undefined' && escProgress > 0) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(offsetX, canvas.height / 2 - 50, this.trackWidth, 100);
+
+            const barMaxWidth = this.trackWidth * 0.8;
+            const barWidth = barMaxWidth * (escProgress / 100);
+            const barX = offsetX + (this.trackWidth - barMaxWidth) / 2;
+            const barY = canvas.height / 2 + 10;
+            
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ef4444';
+            ctx.fillStyle = '#ef4444'; 
+            ctx.fillRect(barX, barY, barWidth, 8);
+            ctx.shadowBlur = 0;
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(barX, barY + 2, barWidth, 4);
+
+            ctx.font = '800 22px Segoe UI';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.fillText('返回房间...', offsetX + this.trackWidth / 2, barY - 15);
+            ctx.shadowBlur = 0;
+        }
     }
 }
 
@@ -1265,7 +1320,6 @@ function resumeGame() {
     const countdownEl = document.getElementById('pause-countdown-text'); 
     countdownEl.style.display = 'block';
     
-    // 如果开着Kiosk模式，点击继续游戏时恢复全屏状态，防止被外部浏览器行为破坏体验
     if (userSettings.autoKiosk && !specClientUid) {
         fetch(`${LOCAL_API_URL}/kiosk`, { 
             method: 'POST', 
@@ -1343,7 +1397,6 @@ function quitGame() {
         gameEngine = null;
     }
     
-    // 正确退出原生的 Kiosk 模式
     if (userSettings.autoKiosk) {
         fetch(`${LOCAL_API_URL}/kiosk`, { 
             method: 'POST', 
@@ -1369,10 +1422,9 @@ window.addEventListener('keydown', (e) => {
         if (gameEngine && gameEngine.isRunning) {
             if (isMulti) {
                 if (!escHoldTimer) {
-                    document.getElementById('esc-progress-overlay').style.display = 'flex';
                     escHoldTimer = setInterval(() => {
                         escProgress += 5; 
-                        document.getElementById('esc-bar').style.width = escProgress + '%';
+                        if (gameEngine && gameEngine.isPaused) gameEngine.draw(gameEngine.getTime());
                         if (escProgress >= 100) { quitGame(); clearInterval(escHoldTimer); }
                     }, 50);
                 }
@@ -1396,17 +1448,14 @@ window.addEventListener('keydown', (e) => {
 
     if (e.code === 'Backquote' && gameEngine && gameEngine.isRunning && !isMulti && !isReplayMode) {
         if (!retryHoldTimer) {
-            document.getElementById('retry-progress-overlay').style.display = 'flex';
             retryHoldTimer = setInterval(() => {
                 retryProgress += 5;
-                document.getElementById('retry-bar').style.width = retryProgress + '%';
+                if (gameEngine && gameEngine.isPaused) gameEngine.draw(gameEngine.getTime());
                 if (retryProgress >= 100) {
                     retryGame();
                     clearInterval(retryHoldTimer);
                     retryHoldTimer = null;
                     retryProgress = 0;
-                    document.getElementById('retry-progress-overlay').style.display = 'none';
-                    document.getElementById('retry-bar').style.width = '0%';
                 }
             }, 20);
         }
@@ -1419,19 +1468,19 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => { 
     if (e.code === 'Escape' && isMulti) {
-        clearInterval(escHoldTimer);
-        escHoldTimer = null;
-        escProgress = 0;
-        document.getElementById('esc-progress-overlay').style.display = 'none';
-        document.getElementById('esc-bar').style.width = '0%';
+        if (escHoldTimer) {
+            clearInterval(escHoldTimer);
+            escHoldTimer = null;
+            escProgress = 0;
+            if (gameEngine && gameEngine.isPaused) gameEngine.draw(gameEngine.getTime());
+        }
     }
     if (e.code === 'Backquote' && !isMulti && !isReplayMode) {
         if (retryHoldTimer) {
             clearInterval(retryHoldTimer);
             retryHoldTimer = null;
             retryProgress = 0;
-            document.getElementById('retry-progress-overlay').style.display = 'none';
-            document.getElementById('retry-bar').style.width = '0%';
+            if (gameEngine && gameEngine.isPaused) gameEngine.draw(gameEngine.getTime());
         }
     }
     if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode && !gameEngine.isSpectator) {
