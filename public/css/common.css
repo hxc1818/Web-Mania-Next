@@ -43,6 +43,10 @@ body, html {
     text-decoration: none;
     padding: 0 24px;
     white-space: nowrap;
+
+    /* 动画配置变量 */
+    --btn-bg-scale: 1;
+    --btn-anim-dur: 3s;
 }
 
 .osu-btn:active { transform: scale(0.96); }
@@ -65,9 +69,12 @@ body, html {
     font-size: 13px;
     padding: 0 16px;
     border-radius: 6px;
+    /* 小按钮通过变量调整内部背景缩放来极大降低密度，同时减缓漂浮速度 */
+    --btn-bg-scale: 1.8;
+    --btn-anim-dur: 4.5s;
 }
 
-/* 🌟 动画三角形背景 (Animated Triangles) 🌟 */
+/* 🌟 动画三角形背景 (Animated Triangles) - 性能优化版 🌟 */
 .osu-btn::before {
     content: '';
     position: absolute;
@@ -76,18 +83,24 @@ body, html {
     pointer-events: none;
     -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
     mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+    
+    /* 性能优化：四层背景合并为两层，内部绘制多图形，显著减轻渲染压力 */
     background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='85' height='85' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.3)' stroke-width='3'/%3E%3C/svg%3E"),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='55' height='55' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.3)' stroke-width='3'/%3E%3C/svg%3E"),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.2)' stroke-width='3'/%3E%3C/svg%3E"),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='65' height='65' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.2)' stroke-width='3'/%3E%3C/svg%3E");
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.25)' stroke-width='2'/%3E%3Cpolygon points='15,40 45,95 -15,95' fill='rgba(255,255,255,0.02)' stroke='rgba(255,255,255,0.1)' stroke-width='1.5'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='50' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.04)' stroke='rgba(255,255,255,0.15)' stroke-width='2'/%3E%3Cpolygon points='85,30 115,80 55,80' fill='rgba(255,255,255,0.03)' stroke='rgba(255,255,255,0.1)' stroke-width='1'/%3E%3C/svg%3E");
     background-repeat: repeat-y;
-    animation: osu-btn-triangles 3s linear infinite;
+    
+    /* 硬件加速图层与动态比例控制 */
+    transform: scale(var(--btn-bg-scale)) translateZ(0);
+    will-change: background-position;
+    
+    animation: osu-btn-triangles var(--btn-anim-dur) linear infinite;
 }
 
 @keyframes osu-btn-triangles {
-    0% { background-position: 15% 0px, 75% 0px, 85% 0px, 25% 0px; }
-    100% { background-position: 15% -85px, 75% -55px, 85% -40px, 25% -65px; }
+    0% { background-position: 15% 0px, 80% 0px; }
+    /* Y轴位移量精准对应 SVG 的 height (80px 和 50px) 即可确保完美无缝循环 */
+    100% { background-position: 15% -80px, 80% -50px; }
 }
 
 /* 顶部角落按钮定位辅助 */
