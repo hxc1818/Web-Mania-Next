@@ -234,7 +234,6 @@ function openCreateRoomMapSelector() {
     isCreatingRoom = true;
     document.getElementById('select-overlay').style.display = 'flex';
     const iframe = document.getElementById('select-iframe');
-    // 修复逻辑：检查当前 src 是否是选谱页面，如果为空或无效则重新加载
     const currentSrc = iframe.src || '';
     if (currentSrc === '' || currentSrc === 'about:blank' || !currentSrc.includes('index.html')) {
         iframe.src = 'index.html?selector=true';
@@ -317,7 +316,7 @@ function updateRoomUI() {
     let mapHasAudio = false;
 
     if (currentMap) {
-        if (me.status !== 'spectating' && me.status !== 'downloading' && me.status !== 'ready' && me.status !== 'playing') {
+        if (me.status !== 'spectating' && me.status !== 'downloading' && me.status !== 'ready' && me.status !== 'playing' && me.status !== 'nokeybind') {
             if (checkLocalMap(currentMap)) {
                 if (me.status !== 'idle') socket.emit('change_status', 'idle');
             } else {
@@ -347,7 +346,7 @@ function updateRoomUI() {
 
     if (!mapHasAudio) { roomAudio.pause(); roomAudio.src = ""; }
 
-    const statusNames = { 'idle': '等待中', 'spectating':'观战中', 'nomap':'缺少谱面', 'downloading':'下载中', 'ready':'已准备', 'playing':'游戏中', 'finished':'已完成' };
+    const statusNames = { 'idle': '等待中', 'spectating':'观战中', 'nomap':'缺少谱面', 'downloading':'下载中', 'ready':'已准备', 'playing':'游戏中', 'finished':'已完成', 'nokeybind':'无键位' };
     document.getElementById('player-list').innerHTML = roomData.players.map(p => `
         <div class="player-item" oncontextmenu="showContextMenu(event, '${p.uid}')">
             <div class="player-info">
@@ -358,21 +357,6 @@ function updateRoomUI() {
             <span class="status-badge st-${p.status}">${statusNames[p.status] || p.status} ${p.status==='downloading'&&p.downloadProgress?`(${p.downloadProgress}%)`:''}</span>
         </div>
     `).join('');
-
-    if (roomData.chat) {
-        const chatBox = document.getElementById('chat-messages');
-        chatBox.innerHTML = roomData.chat.map(msg => {
-            const isSelf = msg.sender === multiUsername;
-            const alignClass = isSelf ? 'self' : 'other';
-            return `
-                <div class="chat-msg-wrap ${alignClass}">
-                    <div class="chat-sender">${msg.sender}</div>
-                    <div class="chat-bubble">${msg.text}</div>
-                </div>
-            `;
-        }).join('');
-        chatBox.scrollTop = chatBox.scrollHeight;
-    }
 
     const actBtn = document.getElementById('btn-action');
     const specBtn = document.getElementById('btn-spectate');
@@ -448,10 +432,82 @@ function updateRoomUI() {
             actBtn.innerText = '正在极速下载中...';
             actBtn.className = 'osu-btn';
             actBtn.onclick = null;
+        } else if (me.status === 'nokeybind') {
+            actBtn.innerText = '请绑定键位 (点击取消)';
+            actBtn.className = 'osu-btn danger';
+            actBtn.onclick = () => socket.emit('change_status', 'idle');
         } else if (me.status === 'idle' || me.status === 'finished') {
             actBtn.innerText = '准备就绪';
             actBtn.className = 'osu-btn success';
-            actBtn.onclick = () => socket.emit('change_status', 'ready');
+            actBtn.onclick = () => {
+                let currentCs = 4;
+                if (currentMap) {
+                    const localMap = beatmapsCache.find(b => b.title === currentMap.title && b.version === currentMap.version);
+                    if (localMap && localMap.cs) currentCs = localMap.cs;
+                }
+                
+                const binds = userSettings.keyBinds[currentCs];
+                let hasBinds = false;
+                if (binds) {
+                    for (let i = 0; i < currentCs; i++) {
+                        if (binds[i] && (binds[i][0] !== '' || binds[i][1] !== '')) {
+                            hasBinds = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!hasBinds) {
+                    socket.emit('change_status', 'nokeybind');
+                    const kbWin = window.open(`keybinds.html?k=${currentCs}`, 'Web Mania Next Keybinds', 'width=800,height=600,autoHideMenuBar=true');
+                    
+                    const checkStorage = (e) => {
+                        if (e.key === 'webmania_settings') {
+                            const newSet = JSON.parse(e.newValue);
+                            const newBinds = newSet.keyBinds[currentCs];
+                            let ok = false;
+                            if (newBinds) {
+                                for (let i = 0; i < currentCs; i++) {
+                                    if (newBinds[i] && (newBinds[i][0] !== '' || newBinds[i][1] !== '')) {
+                                        ok = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (ok) {
+                                window.removeEventListener('storage', checkStorage);
+                                socket.emit('change_status', 'ready');
+                            }
+                        }
+                    };
+                    window.addEventListener('storage', checkStorage);
+                    
+                    const checkClose = setInterval(() => {
+                        if (kbWin && kbWin.closed) {
+                            clearInterval(checkClose);
+                            window.removeEventListener('storage', checkStorage);
+                            const currentSet = JSON.parse(localStorage.getItem('webmania_settings'));
+                            const currentBinds = currentSet.keyBinds[currentCs];
+                            let ok = false;
+                            if (currentBinds) {
+                                for (let i = 0; i < currentCs; i++) {
+                                    if (currentBinds[i] && (currentBinds[i][0] !== '' || currentBinds[i][1] !== '')) {
+                                        ok = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (ok) {
+                                socket.emit('change_status', 'ready');
+                            } else {
+                                socket.emit('change_status', 'idle');
+                            }
+                        }
+                    }, 500);
+                } else {
+                    socket.emit('change_status', 'ready');
+                }
+            };
         } else if (me.status === 'ready' || me.status === 'spectating') {
             if (isHost) {
                 actBtn.innerText = '强制开始游戏';
@@ -581,7 +637,6 @@ function openMultiMapSelector() {
     document.getElementById('select-overlay').style.display = 'flex';
     const iframe = document.getElementById('select-iframe');
     const currentSrc = iframe.src || '';
-    // 修复：逻辑改进，确保每次点击如果当前不是基础选谱页，都重新加载
     if (currentSrc === '' || currentSrc === 'about:blank' || currentSrc.includes('filterDir') || !currentSrc.includes('index.html')) {
         iframe.src = 'index.html?selector=true';
     }
@@ -590,7 +645,6 @@ function openMultiMapSelector() {
 function closeMapSelector() { 
     document.getElementById('select-overlay').style.display = 'none'; 
     const iframe = document.getElementById('select-iframe');
-    // 使用 about:blank 更稳健地清除内容
     iframe.src = 'about:blank'; 
 }
 

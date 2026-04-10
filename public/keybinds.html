@@ -1,3 +1,4 @@
+<!-- /public/keybinds.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -36,7 +37,6 @@
         let settings = JSON.parse(localStorage.getItem('webmania_settings')) || {};
         if(!settings.keyBinds) settings.keyBinds = {};
         
-        // Ensure structure
         for(let i=1; i<=18; i++) {
             if(!settings.keyBinds[i]) {
                 const arr = [];
@@ -46,6 +46,11 @@
         }
 
         let currentK = 4;
+        const params = new URLSearchParams(window.location.search);
+        const urlK = parseInt(params.get('k'));
+        if (urlK >= 1 && urlK <= 18) {
+            currentK = urlK;
+        }
 
         function renderKList() {
             const list = document.getElementById('k-list');
@@ -107,6 +112,14 @@
 
         renderKList();
         renderBinds();
+        
+        // 当因为传入参数强制进入某 K 数时，自动将左侧菜单滚至相应按钮
+        setTimeout(() => {
+            const buttons = document.getElementById('k-list').children;
+            if (buttons.length >= currentK) {
+                buttons[currentK - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 100);
     </script>
 </body>
 </html>
