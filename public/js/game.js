@@ -1,4 +1,4 @@
-// /data/public/js/game.js
+// /public/js/game.js
 const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
 const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
 
@@ -291,7 +291,8 @@ class GameEngine {
             p300: Math.max(16, 64 - 3 * this.od),
             p200: Math.max(16, 97 - 3 * this.od),
             p100: Math.max(16, 127 - 3 * this.od),
-            p50:  Math.max(16, 151 - 3 * this.od)
+            p50:  Math.max(16, 151 - 3 * this.od),
+            miss: Math.max(16, 188 - 3 * this.od) 
         };
 
         this.scrollSpeed = userSettings.scrollSpeed || 1000;
@@ -721,19 +722,43 @@ class GameEngine {
         for (let i = 0; i < this.notes.length; i++) {
             const note = this.notes[i];
             if (note.column !== lane || note.headJudged) continue;
+            
             const diff = note.time - now;
-            if (diff > this.judge.p50) break; 
-            if (Math.abs(diff) <= this.judge.p50 && Math.abs(diff) < minDiff) { minDiff = Math.abs(diff); target = note; }
+            
+            // 按太早或者还在很远的未来，忽略之后的寻找
+            if (diff > this.judge.miss) break; 
+
+            // 如果按键落在了我们的判定窗口内（包括了 early miss 窗口）
+            if (Math.abs(diff) <= this.judge.miss && Math.abs(diff) < minDiff) { 
+                minDiff = Math.abs(diff); 
+                target = note; 
+            }
         }
 
         if (target && !this.isSpectator) { 
             const diff = now - target.time;
             const absDiff = Math.abs(diff);
             let j = 'miss';
-            if (absDiff <= this.judge.max) j = 'max'; else if (absDiff <= this.judge.p300) j = 'p300'; else if (absDiff <= this.judge.p200) j = 'p200'; else if (absDiff <= this.judge.p100) j = 'p100'; else if (absDiff <= this.judge.p50) j = 'p50';
+            if (absDiff <= this.judge.max) j = 'max'; 
+            else if (absDiff <= this.judge.p300) j = 'p300'; 
+            else if (absDiff <= this.judge.p200) j = 'p200'; 
+            else if (absDiff <= this.judge.p100) j = 'p100'; 
+            else if (absDiff <= this.judge.p50) j = 'p50';
+            else j = 'miss'; // 这里就是按太早的情况触发了Miss
+            
             target.headJudged = true;
-            if (target.type === 'hold' && j !== 'miss') target.isHolding = true;
             this.addJudge(j, diff, lane, false); 
+            
+            if (target.type === 'hold') {
+                if (j !== 'miss') {
+                    target.isHolding = true;
+                } else {
+                    // 头部如果判定为Miss（如按太早），那么长按的尾巴直接连带作为Miss处理
+                    target.tailJudged = true;
+                    target.isHolding = false;
+                    this.addJudge('miss', diff, lane, true); 
+                }
+            }
         }
     }
 
@@ -759,7 +784,11 @@ class GameEngine {
                 if (diff < -this.judge.p50) this.addJudge('miss', diff, lane, true);
                 else {
                     const absDiff = Math.abs(diff); let j = 'miss';
-                    if (absDiff <= this.judge.max) j = 'max'; else if (absDiff <= this.judge.p300) j = 'p300'; else if (absDiff <= this.judge.p200) j = 'p200'; else if (absDiff <= this.judge.p100) j = 'p100'; else if (absDiff <= this.judge.p50) j = 'p50';
+                    if (absDiff <= this.judge.max) j = 'max'; 
+                    else if (absDiff <= this.judge.p300) j = 'p300'; 
+                    else if (absDiff <= this.judge.p200) j = 'p200'; 
+                    else if (absDiff <= this.judge.p100) j = 'p100'; 
+                    else if (absDiff <= this.judge.p50) j = 'p50';
                     this.addJudge(j, diff, lane, true); 
                 }
                 break;
@@ -851,11 +880,24 @@ class GameEngine {
         if (!this.isSpectator) {
             for (let i = 0; i < this.notes.length; i++) {
                 const note = this.notes[i];
+                
+                // 完全漏掉（没有按）
                 if (!note.headJudged && now > note.time + missThreshold) { 
-                    note.headJudged = true; this.addJudge('miss', missThreshold, note.column, false); 
+                    note.headJudged = true; 
+                    this.addJudge('miss', missThreshold, note.column, false); 
+                    if (note.type === 'hold') {
+                        // 头部没按导致直接错过，那么尾部肯定也算作漏掉了（连带Miss惩罚）
+                        note.tailJudged = true; 
+                        note.isHolding = false;
+                        this.addJudge('miss', missThreshold, note.column, true);
+                    }
                 }
-                if (note.type === 'hold' && note.headJudged && note.isHolding && now > note.endTime + missThreshold && !note.tailJudged) {
-                    note.tailJudged = true; note.isHolding = false; this.addJudge('miss', missThreshold, note.column, true);
+                
+                // 长按成功一直保持到了结束时间（完美释放）
+                if (note.type === 'hold' && note.headJudged && note.isHolding && now > note.endTime && !note.tailJudged) {
+                    note.tailJudged = true; 
+                    note.isHolding = false; 
+                    this.addJudge('max', 0, note.column, true);
                 }
             }
         }
