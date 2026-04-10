@@ -1,3 +1,4 @@
+<!-- public/index.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -15,7 +16,8 @@
         <a class="mode-tab" href="multiplayer.html">Multiplayer</a>
     </div>
 
-    <div id="setup-screen" class="screen active">
+    <!-- 移除了默认的 active 状态，由 js 决策 -->
+    <div id="setup-screen" class="screen">
         <div class="setup-box">
             <div class="setup-title" data-i18n="init_title">初始化</div>
             <div class="setup-desc" data-i18n="init_desc">请选择您的 <b>osu! Songs</b> 文件夹</div>
@@ -35,17 +37,13 @@
         <div id="settings-btn" class="osu-btn top-btn-pos" style="right: 40px; height: 42px; padding: 0 20px;" data-i18n="settings">设置</div>
         
         <div class="search-bar-container" id="search-bar-container">
-            <input type="text" id="search-input" class="search-input" placeholder="搜索标题、艺术家、难度..." data-i18n="search_placeholder">
-            <select id="sort-field" class="search-select">
-                <option value="title" data-i18n="sort_title">标题 (A-Z)</option>
-                <option value="artist" data-i18n="sort_artist">艺术家 (A-Z)</option>
-                <option value="stars" data-i18n="sort_diff">难度</option>
-                <option value="bpm" data-i18n="sort_bpm">BPM</option>
-            </select>
-            <select id="sort-dir" class="search-select">
-                <option value="asc" data-i18n="sort_asc">升序</option>
-                <option value="desc" data-i18n="sort_desc">降序</option>
-            </select>
+            <div style="display: flex; gap: 10px; width: 100%;">
+                <input type="text" id="search-input" class="search-input" placeholder="搜索标题、艺术家、难度..." data-i18n="search_placeholder" style="flex: 2;">
+                <div id="dropdown-sort-field" class="osu-dropdown-placeholder" style="margin-bottom: 0; flex: 1;"></div>
+                <div id="dropdown-sort-dir" class="osu-dropdown-placeholder" style="margin-bottom: 0; flex: 1;"></div>
+                <div id="dropdown-filter-keys" class="osu-dropdown-placeholder" style="margin-bottom: 0; flex: 1;"></div>
+            </div>
+            <div id="slider-diff-range" class="osu-slider-placeholder" style="margin-bottom: 0;"></div>
         </div>
 
         <div class="select-left">

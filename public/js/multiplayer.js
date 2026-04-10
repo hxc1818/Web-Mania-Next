@@ -61,6 +61,11 @@ window.addEventListener('beforeunload', () => {
     if (!isNavigatingToGame && socket && socket.connected) socket.emit('leave_room');
 });
 
+// 处理页面在 bfcache 中恢复的情况
+window.addEventListener('pageshow', () => {
+    isNavigatingToGame = false;
+});
+
 document.querySelectorAll('.mode-tab').forEach(tab => {
     tab.addEventListener('click', () => {
         if(!isNavigatingToGame && socket && socket.connected) socket.emit('leave_room');
@@ -68,6 +73,21 @@ document.querySelectorAll('.mode-tab').forEach(tab => {
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
+    // 处理页面闪烁，按用户状态加载页面
+    const savedUsername = localStorage.getItem('wm_username');
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetRoom = urlParams.get('room');
+
+    if (savedUsername) {
+        if (!targetRoom && !sessionStorage.getItem('webmania_multi_room')) {
+            const lobbyScreen = document.getElementById('multi-lobby-screen');
+            if (lobbyScreen) lobbyScreen.classList.add('active');
+        }
+    } else {
+        const loginScreen = document.getElementById('multi-login-screen');
+        if (loginScreen) loginScreen.classList.add('active');
+    }
+
     if (!localStorage.getItem('wm_folderPath')) {
         alert('请先在 Single Player 模式下完成初始化设置。');
         window.location.href = 'index.html';
@@ -84,10 +104,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         const data = await res.json();
         if (data.success) beatmapsCache = data.beatmaps || [];
     } catch(e) {}
-
-    const savedUsername = localStorage.getItem('wm_username');
-    const urlParams = new URLSearchParams(window.location.search);
-    const targetRoom = urlParams.get('room');
 
     if (savedUsername) {
         document.getElementById('username-input').value = savedUsername;

@@ -170,6 +170,168 @@ class OsuSlider {
     }
 }
 
+// 优化性能版 Range Slider (拖动时不触发列表重绘)
+class OsuRangeSlider {
+    constructor(containerId, options) {
+        this.container = document.getElementById(containerId);
+        if (!this.container) return;
+        this.labelKey = options.labelKey;
+        this.min = options.min || 0;
+        this.max = options.max || 10;
+        this.minValue = options.minValue !== undefined ? options.minValue : this.min;
+        this.maxValue = options.maxValue !== undefined ? options.maxValue : this.max;
+        this.onChange = options.onChange;
+        this.formatter = options.formatter || ((min, max) => `${min} - ${max}`);
+        this.step = options.step || 0.1;
+
+        this.activeThumb = null;
+
+        this.buildDOM();
+        this.attachEvents();
+        this.updateVisuals();
+    }
+
+    buildDOM() {
+        const lang = userSettings.language || 'zh';
+        const translatedLabel = (i18nDict[lang] && i18nDict[lang][this.labelKey]) ? i18nDict[lang][this.labelKey] : this.labelKey;
+        
+        this.container.innerHTML = `
+            <div class="osu-slider-wrapper" tabindex="0">
+                <div class="osu-slider-main">
+                    <div class="slider-left">
+                        <span class="slider-label" data-i18n="${this.labelKey}">${translatedLabel}</span>
+                        <div class="slider-value-container">
+                            <span class="slider-value"></span>
+                        </div>
+                    </div>
+                    <div class="slider-track">
+                        <div class="slider-fill" style="border-radius: 0;"></div>
+                        <div class="slider-thumb thumb-left"></div>
+                        <div class="slider-thumb thumb-right"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        this.wrapper = this.container.querySelector('.osu-slider-wrapper');
+        this.valDisplay = this.container.querySelector('.slider-value');
+        this.track = this.container.querySelector('.slider-track');
+        this.fill = this.container.querySelector('.slider-fill');
+        this.thumbLeft = this.container.querySelector('.thumb-left');
+        this.thumbRight = this.container.querySelector('.thumb-right');
+    }
+
+    setValues(minVal, maxVal, triggerOnChange = true) {
+        let newMin = Math.max(this.min, Math.min(this.max, minVal));
+        let newMax = Math.max(this.min, Math.min(this.max, maxVal));
+        
+        if (newMin > newMax) {
+            if (this.activeThumb === 'left') newMin = newMax;
+            else newMax = newMin;
+        }
+
+        if (this.step && this.step !== 1) {
+            const inv = 1.0 / this.step;
+            newMin = Math.round(newMin * inv) / inv;
+            newMax = Math.round(newMax * inv) / inv;
+        } else {
+            newMin = Math.round(newMin);
+            newMax = Math.round(newMax);
+        }
+
+        const changed = (this.minValue !== newMin || this.maxValue !== newMax);
+
+        if (changed) {
+            this.minValue = newMin;
+            this.maxValue = newMax;
+            if (triggerOnChange && this.onChange) this.onChange(this.minValue, this.maxValue);
+        }
+        this.updateVisuals();
+    }
+
+    updateVisuals() {
+        let leftPercent = ((this.minValue - this.min) / (this.max - this.min)) * 100;
+        let rightPercent = ((this.maxValue - this.min) / (this.max - this.min)) * 100;
+        
+        leftPercent = Math.max(0, Math.min(100, leftPercent));
+        rightPercent = Math.max(0, Math.min(100, rightPercent));
+
+        this.fill.style.left = `${leftPercent}%`;
+        this.fill.style.width = `${rightPercent - leftPercent}%`;
+        
+        this.thumbLeft.style.left = `${leftPercent}%`;
+        this.thumbRight.style.left = `${rightPercent}%`;
+
+        this.valDisplay.innerText = this.formatter(this.minValue, this.maxValue);
+    }
+
+    updateFromEvent(e) {
+        const rect = this.track.getBoundingClientRect();
+        let percent = (e.clientX - rect.left) / rect.width;
+        percent = Math.max(0, Math.min(1, percent));
+        const val = percent * (this.max - this.min) + this.min;
+
+        // 在拖动过程中传入 false，避免触发重绘谱面列表
+        if (this.activeThumb === 'left') {
+            this.setValues(val, this.maxValue, false);
+        } else if (this.activeThumb === 'right') {
+            this.setValues(this.minValue, val, false);
+        } else {
+            const distLeft = Math.abs(val - this.minValue);
+            const distRight = Math.abs(val - this.maxValue);
+            if (distLeft < distRight) {
+                this.activeThumb = 'left';
+                this.setValues(val, this.maxValue, false);
+            } else {
+                this.activeThumb = 'right';
+                this.setValues(this.minValue, val, false);
+            }
+        }
+    }
+
+    attachEvents() {
+        this.track.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            this.track.setPointerCapture(e.pointerId);
+            
+            const rect = this.track.getBoundingClientRect();
+            let percent = (e.clientX - rect.left) / rect.width;
+            const val = percent * (this.max - this.min) + this.min;
+
+            const distLeft = Math.abs(val - this.minValue);
+            const distRight = Math.abs(val - this.maxValue);
+            
+            if (distLeft <= distRight) {
+                this.activeThumb = 'left';
+            } else {
+                this.activeThumb = 'right';
+            }
+
+            this.updateFromEvent(e);
+            this.wrapper.focus();
+        });
+
+        this.track.addEventListener('pointermove', (e) => {
+            if (this.activeThumb) this.updateFromEvent(e);
+        });
+
+        const endDrag = (e) => {
+            if (this.activeThumb) {
+                this.activeThumb = null;
+                this.track.releasePointerCapture(e.pointerId);
+                // 拖动结束才触发 onChange 事件，优化性能
+                if (this.onChange) this.onChange(this.minValue, this.maxValue);
+            }
+        };
+        this.track.addEventListener('pointerup', endDrag);
+        this.track.addEventListener('pointercancel', endDrag);
+    }
+    
+    getValues() {
+        return { min: this.minValue, max: this.maxValue };
+    }
+}
+
+
 class OsuToggle {
     constructor(containerId, options) {
         this.container = document.getElementById(containerId);
@@ -508,8 +670,78 @@ function handleSearchInput() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+    // 动态处理页面的闪烁问题（不再依赖 HTML 的默认 active 属性）
+    const skipSetup = localStorage.getItem('wm_skip_setup') === 'true';
+    if (skipSetup) {
+        const selScreen = document.getElementById('select-screen');
+        if (selScreen) selScreen.classList.add('active');
+    } else {
+        const setupScreen = document.getElementById('setup-screen');
+        if (setupScreen) setupScreen.classList.add('active');
+    }
+
     applyTranslations();
     applyUIScale(); 
+
+    // 初始化搜索栏全新的 OsuDropdown 与难度筛选器
+    window.osuDropdowns = window.osuDropdowns || {};
+    
+    // 恢复持久化筛选器状态
+    const savedSortField = sessionStorage.getItem('wm_sortField') || 'title';
+    window.osuDropdowns['sortField'] = new OsuDropdown('dropdown-sort-field', {
+        labelKey: '排序方式',
+        options: [
+            { value: 'title', label: '标题 (A-Z)', i18n: 'sort_title' },
+            { value: 'artist', label: '艺术家 (A-Z)', i18n: 'sort_artist' },
+            { value: 'stars', label: '难度', i18n: 'sort_diff' },
+            { value: 'bpm', label: 'BPM', i18n: 'sort_bpm' }
+        ],
+        defaultValue: 'title',
+        value: savedSortField,
+        onChange: (val) => { sessionStorage.setItem('wm_sortField', val); renderMapList(); }
+    });
+
+    const savedSortDir = sessionStorage.getItem('wm_sortDir') || 'asc';
+    window.osuDropdowns['sortDir'] = new OsuDropdown('dropdown-sort-dir', {
+        labelKey: '顺序',
+        options: [
+            { value: 'asc', label: '升序', i18n: 'sort_asc' },
+            { value: 'desc', label: '降序', i18n: 'sort_desc' }
+        ],
+        defaultValue: 'asc',
+        value: savedSortDir,
+        onChange: (val) => { sessionStorage.setItem('wm_sortDir', val); renderMapList(); }
+    });
+
+    const keysOpts = [{ value: 'ALL', label: '全部 (ALL)' }];
+    for(let i=1; i<=18; i++) keysOpts.push({ value: i.toString(), label: `${i}K` });
+
+    const savedFilterKeys = sessionStorage.getItem('wm_filterKeys') || 'ALL';
+    window.osuDropdowns['filterKeys'] = new OsuDropdown('dropdown-filter-keys', {
+        labelKey: '模式筛选',
+        options: keysOpts,
+        defaultValue: 'ALL',
+        value: savedFilterKeys,
+        onChange: (val) => { sessionStorage.setItem('wm_filterKeys', val); renderMapList(); }
+    });
+
+    window.osuRangeSliders = window.osuRangeSliders || {};
+    const savedDiffMin = parseFloat(sessionStorage.getItem('wm_diffMin')) || 0;
+    const savedDiffMax = sessionStorage.getItem('wm_diffMax') !== null ? parseFloat(sessionStorage.getItem('wm_diffMax')) : 10;
+    window.osuRangeSliders['diffRange'] = new OsuRangeSlider('slider-diff-range', {
+        labelKey: '难度范围 (Stars)',
+        min: 0,
+        max: 10,
+        step: 0.1,
+        minValue: savedDiffMin,
+        maxValue: savedDiffMax,
+        formatter: (min, max) => `${min.toFixed(1)} ★ - ${max.toFixed(1)} ★`,
+        onChange: (min, max) => { 
+            sessionStorage.setItem('wm_diffMin', min); 
+            sessionStorage.setItem('wm_diffMax', max); 
+            renderMapList(); 
+        }
+    });
 
     // Reset lock to avoid bug
     window.isStartingGame = false;
@@ -531,13 +763,10 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('folder-input').value = savedPath;
     if(savedPath) document.getElementById('path-display').innerText = savedPath;
 
-    const skipSetup = localStorage.getItem('wm_skip_setup') === 'true';
-
     if (savedPath) {
         if (skipSetup) {
-            document.getElementById('setup-screen').classList.remove('active');
-            document.getElementById('select-screen').classList.add('active');
-            document.getElementById('map-list').innerHTML = '<div style="color:#60a5fa; text-align:center; padding: 50px; font-weight: 600;">正在加载缓存数据...</div>';
+            const list = document.getElementById('map-list');
+            if (list) list.innerHTML = '<div style="color:#60a5fa; text-align:center; padding: 50px; font-weight: 600;">正在加载缓存数据...</div>';
         }
         const status = document.getElementById('scan-status');
         if (status) status.innerText = '正在初始化扫描...';
@@ -545,14 +774,31 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     const searchInput = document.getElementById('search-input');
-    if (searchInput) searchInput.addEventListener('input', handleSearchInput);
-    const sortField = document.getElementById('sort-field');
-    if (sortField) sortField.addEventListener('change', renderMapList);
-    const sortDir = document.getElementById('sort-dir');
-    if (sortDir) sortDir.addEventListener('change', renderMapList);
+    if (searchInput) {
+        searchInput.value = sessionStorage.getItem('wm_search') || '';
+        searchInput.addEventListener('input', (e) => {
+            sessionStorage.setItem('wm_search', e.target.value);
+            handleSearchInput();
+        });
+    }
 
     initSettingsUI();
     populateAudioDevices();
+});
+
+// 处理页面在 bfcache 中恢复的情况（比如点返回键或重载后残留的过渡动画）
+window.addEventListener('pageshow', (e) => {
+    window.isStartingGame = false;
+    // 重置并隐藏转码 UI 以及各种过渡掩盖
+    const overlay = document.getElementById('transcode-overlay');
+    if (overlay) overlay.style.display = 'none';
+    const selectScreen = document.getElementById('select-screen');
+    if (selectScreen) selectScreen.classList.remove('transitioning');
+    
+    // 如果返回后背景音乐被停了，在这里尝试恢复
+    if (previewAudio && previewAudio.paused && selectedMap && selectedMap.audioPath) {
+        previewAudio.play().catch(()=>{});
+    }
 });
 
 function initSettingsUI() {
@@ -632,7 +878,7 @@ function initSettingsUI() {
     initToggle('toggle-hwAccel', 'hwAccel', 'hw_accel', false);
     initToggle('toggle-enableHitSounds', 'enableHitSounds', 'enable_hitsounds', true);
 
-    window.osuDropdowns = {};
+    window.osuDropdowns = window.osuDropdowns || {};
     const initDropdown = (id, prop, labelKey, opts, defVal, onChangeExtra) => {
         if(!document.getElementById(id)) return;
         window.osuDropdowns[prop] = new OsuDropdown(id, {
@@ -1037,18 +1283,33 @@ function renderMapList() {
     });
 
     const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
-    const sortField = document.getElementById('sort-field')?.value || 'title';
-    const sortDir = document.getElementById('sort-dir')?.value || 'asc';
+    const sortField = window.osuDropdowns && window.osuDropdowns['sortField'] ? window.osuDropdowns['sortField'].value : 'title';
+    const sortDir = window.osuDropdowns && window.osuDropdowns['sortDir'] ? window.osuDropdowns['sortDir'].value : 'asc';
+    const filterKey = window.osuDropdowns && window.osuDropdowns['filterKeys'] ? window.osuDropdowns['filterKeys'].value : 'ALL';
+    const diffRange = window.osuRangeSliders && window.osuRangeSliders['diffRange'] ? window.osuRangeSliders['diffRange'].getValues() : { min: 0, max: 10 };
 
     let groupArray = Object.keys(mapGroups).map(key => {
-        const maps = mapGroups[key];
+        let maps = mapGroups[key];
+
+        // 核心筛选逻辑：排除不符合键数和星级难度的谱面
+        maps = maps.filter(m => {
+            const stars = m.stars || getFakeStars(m.version);
+            const cs = m.cs || 4;
+            if (filterKey !== 'ALL' && cs !== parseInt(filterKey)) return false;
+            if (stars < diffRange.min || stars > diffRange.max) return false;
+            return true;
+        });
+
+        // 隐藏掉所有的难度都不匹配条件的谱面
+        if (maps.length === 0) return null;
+
         return {
             key: key, maps: maps, title: maps[0].title.toLowerCase(), artist: maps[0].artist.toLowerCase(),
             maxStars: Math.max(...maps.map(m => m.stars || getFakeStars(m.version))),
             avgBpm: maps.reduce((sum, m) => sum + (m.bpm || 0), 0) / maps.length,
             dirPath: maps[0].dirPath
         };
-    });
+    }).filter(g => g !== null);
 
     if (filterDir) {
         groupArray = groupArray.filter(g => g.dirPath.includes(filterDir));
@@ -1070,7 +1331,7 @@ function renderMapList() {
         return 0;
     });
 
-    if (!isSelector && !searchTerm && !filterDir) {
+    if (!isSelector && !searchTerm && !filterDir && filterKey === 'ALL' && diffRange.min === 0 && diffRange.max === 10) {
         const randomGroupEl = document.createElement('div');
         randomGroupEl.className = 'map-group';
         randomGroupEl.id = 'sayobot-group';

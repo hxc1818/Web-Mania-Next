@@ -22,7 +22,6 @@ body, html {
 .setup-input { width: 100%; padding: 12px 15px; font-size: 15px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; outline: none; transition: border-color 0.2s; margin-bottom: 15px; }
 .setup-input:focus { border-color: #3b82f6; }
 
-/* 🌟 全新全局按钮样式 (OsuButton) 🌟 */
 .osu-btn {
     position: relative;
     overflow: hidden;
@@ -43,8 +42,6 @@ body, html {
     text-decoration: none;
     padding: 0 24px;
     white-space: nowrap;
-
-    /* 动画配置变量 */
     --btn-bg-scale: 1;
     --btn-anim-dur: 3s;
 }
@@ -53,7 +50,6 @@ body, html {
 .osu-btn:hover { background-color: #7356d9; }
 .osu-btn:focus-visible { box-shadow: 0 0 0 2px #9966ff; }
 
-/* 变体 (Variants) */
 .osu-btn.danger { background-color: #d23e70; }
 .osu-btn.danger:hover { background-color: #e6457a; }
 
@@ -63,18 +59,15 @@ body, html {
 .osu-btn.secondary { background-color: #4b5563; }
 .osu-btn.secondary:hover { background-color: #6b7280; }
 
-/* 尺寸调节 (Small variant) */
 .osu-btn-sm {
     height: 36px;
     font-size: 13px;
     padding: 0 16px;
     border-radius: 6px;
-    /* 小按钮通过变量调整内部背景缩放来极大降低密度，同时减缓漂浮速度 */
     --btn-bg-scale: 1.8;
     --btn-anim-dur: 4.5s;
 }
 
-/* 🌟 动画三角形背景 (Animated Triangles) - 性能优化版 🌟 */
 .osu-btn::before {
     content: '';
     position: absolute;
@@ -84,13 +77,11 @@ body, html {
     -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
     mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
     
-    /* 性能优化：四层背景合并为两层，内部绘制多图形，显著减轻渲染压力 */
     background-image:
         url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.25)' stroke-width='2'/%3E%3Cpolygon points='15,40 45,95 -15,95' fill='rgba(255,255,255,0.02)' stroke='rgba(255,255,255,0.1)' stroke-width='1.5'/%3E%3C/svg%3E"),
         url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='50' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.04)' stroke='rgba(255,255,255,0.15)' stroke-width='2'/%3E%3Cpolygon points='85,30 115,80 55,80' fill='rgba(255,255,255,0.03)' stroke='rgba(255,255,255,0.1)' stroke-width='1'/%3E%3C/svg%3E");
     background-repeat: repeat-y;
     
-    /* 硬件加速图层与动态比例控制 */
     transform: scale(var(--btn-bg-scale)) translateZ(0);
     will-change: background-position;
     
@@ -99,11 +90,9 @@ body, html {
 
 @keyframes osu-btn-triangles {
     0% { background-position: 15% 0px, 80% 0px; }
-    /* Y轴位移量精准对应 SVG 的 height (80px 和 50px) 即可确保完美无缝循环 */
     100% { background-position: 15% -80px, 80% -50px; }
 }
 
-/* 顶部角落按钮定位辅助 */
 .top-btn-pos {
     position: absolute;
     top: 30px;
@@ -114,6 +103,30 @@ body, html {
 .cm-item { padding: 10px 20px; color: #eee; cursor: pointer; font-size: 14px; transition: 0.2s; }
 .cm-item:hover { background: #5f46b3; }
 .fav-indicator { color: #fbbf24; margin-right: 5px; font-weight: bold; }
+
+.dropdown-list-wrapper {
+    display: grid; grid-template-rows: 0fr; transition: all 0.2s ease-out; opacity: 0; pointer-events: none;
+    width: 100%; margin-top: 0; z-index: 20;
+    position: absolute; top: 100%; left: 0;
+}
+.dropdown-list-wrapper.open { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; margin-top: 8px; }
+.dropdown-list-inner {
+    overflow: hidden; background: rgba(20, 20, 25, 0.98); border: 1px solid #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3), 0 10px 30px rgba(0,0,0,0.5); border-radius: 8px;
+    backdrop-filter: blur(15px); max-height: 250px; overflow-y: auto; display: flex; flex-direction: column;
+}
+
+/* Fix component overflow text & sizes */
+.dropdown-left { display: flex; flex-direction: column; justify-content: center; flex: 1; min-width: 0; margin-right: 10px; }
+.dropdown-value { color: #fff; font-size: 16px; font-weight: 500; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dropdown-label { color: #ccc; font-size: 13px; font-weight: 600; margin-bottom: 2px; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.slider-left {
+    display: flex; flex-direction: column; justify-content: center; width: 180px; flex-shrink: 0; margin-right: 16px;
+}
+
+.slider-fill {
+    position: absolute; top: 0; left: 0; height: 100%; background: #2563eb; transition: width 0.075s ease-out, left 0.075s ease-out; border-radius: 6px; pointer-events: none;
+}
 
 .color-ss { color: #fbbf24; text-shadow: 0 0 20px rgba(251, 191, 36, 0.4); } 
 .color-s { color: #f59e0b; text-shadow: 0 0 20px rgba(245, 158, 11, 0.4); } 
