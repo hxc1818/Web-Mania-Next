@@ -170,7 +170,6 @@ class OsuSlider {
     }
 }
 
-// 优化性能版 Range Slider (拖动时不触发列表重绘)
 class OsuRangeSlider {
     constructor(containerId, options) {
         this.container = document.getElementById(containerId);
@@ -270,7 +269,6 @@ class OsuRangeSlider {
         percent = Math.max(0, Math.min(1, percent));
         const val = percent * (this.max - this.min) + this.min;
 
-        // 在拖动过程中传入 false，避免触发重绘谱面列表
         if (this.activeThumb === 'left') {
             this.setValues(val, this.maxValue, false);
         } else if (this.activeThumb === 'right') {
@@ -318,7 +316,6 @@ class OsuRangeSlider {
             if (this.activeThumb) {
                 this.activeThumb = null;
                 this.track.releasePointerCapture(e.pointerId);
-                // 拖动结束才触发 onChange 事件，优化性能
                 if (this.onChange) this.onChange(this.minValue, this.maxValue);
             }
         };
@@ -670,7 +667,6 @@ function handleSearchInput() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-    // 动态处理页面的闪烁问题（不再依赖 HTML 的默认 active 属性）
     const skipSetup = localStorage.getItem('wm_skip_setup') === 'true';
     if (skipSetup) {
         const selScreen = document.getElementById('select-screen');
@@ -680,13 +676,11 @@ window.addEventListener('DOMContentLoaded', () => {
         if (setupScreen) setupScreen.classList.add('active');
     }
 
-    applyTranslations();
+    if (typeof applyTranslations === 'function') applyTranslations();
     applyUIScale(); 
 
-    // 初始化搜索栏全新的 OsuDropdown 与难度筛选器
     window.osuDropdowns = window.osuDropdowns || {};
     
-    // 恢复持久化筛选器状态
     const savedSortField = sessionStorage.getItem('wm_sortField') || 'title';
     window.osuDropdowns['sortField'] = new OsuDropdown('dropdown-sort-field', {
         labelKey: '排序方式',
@@ -743,7 +737,6 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Reset lock to avoid bug
     window.isStartingGame = false;
 
     if (isSelector) {
@@ -786,16 +779,13 @@ window.addEventListener('DOMContentLoaded', () => {
     populateAudioDevices();
 });
 
-// 处理页面在 bfcache 中恢复的情况（比如点返回键或重载后残留的过渡动画）
 window.addEventListener('pageshow', (e) => {
     window.isStartingGame = false;
-    // 重置并隐藏转码 UI 以及各种过渡掩盖
     const overlay = document.getElementById('transcode-overlay');
     if (overlay) overlay.style.display = 'none';
     const selectScreen = document.getElementById('select-screen');
     if (selectScreen) selectScreen.classList.remove('transitioning');
     
-    // 如果返回后背景音乐被停了，在这里尝试恢复
     if (previewAudio && previewAudio.paused && selectedMap && selectedMap.audioPath) {
         previewAudio.play().catch(()=>{});
     }
@@ -813,7 +803,7 @@ function initSettingsUI() {
                 saveSettings();
                 
                 if (prop === 'renderer' || prop === 'fpsLimit' || prop === 'threadMode') saveSysConfig();
-                if (prop === 'language') applyTranslations();
+                if (prop === 'language' && typeof applyTranslations === 'function') applyTranslations();
                 if (onChange) onChange();
             });
         }
@@ -890,7 +880,7 @@ function initSettingsUI() {
                 userSettings[prop] = val;
                 saveSettings();
                 if (prop === 'renderer' || prop === 'fpsLimit' || prop === 'threadMode') saveSysConfig();
-                if (prop === 'language') applyTranslations();
+                if (prop === 'language' && typeof applyTranslations === 'function') applyTranslations();
                 if (onChangeExtra) onChangeExtra(val);
             }
         });
@@ -991,7 +981,7 @@ window.triggerRebuildCache = function() {
     const list = document.getElementById('map-list');
     if (list) {
         list.innerHTML = '<div style="color:#ef4444; text-align:center; padding: 50px; font-weight: 600;" data-i18n="rebuilding_cache">正在深度扫描并重建缓存...</div>';
-        applyTranslations();
+        if (typeof applyTranslations === 'function') applyTranslations();
     }
     doScan(true);
 };
@@ -1291,7 +1281,6 @@ function renderMapList() {
     let groupArray = Object.keys(mapGroups).map(key => {
         let maps = mapGroups[key];
 
-        // 核心筛选逻辑：排除不符合键数和星级难度的谱面
         maps = maps.filter(m => {
             const stars = m.stars || getFakeStars(m.version);
             const cs = m.cs || 4;
@@ -1300,7 +1289,6 @@ function renderMapList() {
             return true;
         });
 
-        // 隐藏掉所有的难度都不匹配条件的谱面
         if (maps.length === 0) return null;
 
         return {
@@ -1635,7 +1623,6 @@ function parseOsuFileLite(osuText) {
     return { bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath };
 }
 
-// 转码和跳转逻辑集成在选歌界面
 async function startGame() {
     if (!selectedMap || window.isStartingGame) return; 
     window.isStartingGame = true;

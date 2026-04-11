@@ -1,0 +1,382 @@
+<!-- /public/offset_calibration.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音频延迟校准 (Offset Calibration)</title>
+    <link rel="stylesheet" href="css/common.css">
+    <style>
+        body {
+            margin: 0;
+            background: #0f0f13;
+            color: #fff;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            text-align: center;
+            width: 100%;
+            max-width: 800px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .title {
+            font-size: 30px;
+            font-weight: 800;
+            margin-bottom: 10px;
+            color: #3b82f6;
+        }
+
+        .desc {
+            font-size: 16px;
+            color: #aaa;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .visual-beat {
+            width: 180px;
+            height: 180px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            margin: 0 auto 40px auto;
+            transition: transform 0.05s, background 0.05s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 60px;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .visual-beat.beat {
+            background: #ffffff;
+            border-color: #e2e8f0;
+            transform: scale(1.1);
+            color: #0f0f13;
+            box-shadow: 0 0 40px rgba(255, 255, 255, 0.6);
+        }
+
+        .visual-beat.accent {
+            background: #fbbf24;
+            border-color: #fcd34d;
+            transform: scale(1.15);
+            color: #0f0f13;
+            box-shadow: 0 0 50px rgba(251, 191, 36, 0.8);
+        }
+
+        .meter-container {
+            width: 100%;
+            height: 60px;
+            position: relative;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+
+        .meter-center {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: #fff;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+
+        .meter-p50 { position: absolute; left: 0%; right: 0%; top: 0; bottom: 0; background: rgba(167, 139, 250, 0.2); }
+        .meter-p100 { position: absolute; left: 10%; right: 10%; top: 0; bottom: 0; background: rgba(96, 165, 250, 0.3); }
+        .meter-p200 { position: absolute; left: 20%; right: 20%; top: 0; bottom: 0; background: rgba(52, 211, 153, 0.4); }
+        .meter-p300 { position: absolute; left: 35%; right: 35%; top: 0; bottom: 0; background: rgba(251, 191, 36, 0.5); }
+
+        .hit-mark {
+            position: absolute;
+            width: 4px;
+            height: 100%;
+            top: 0;
+            transform: translateX(-50%);
+            z-index: 5;
+            opacity: 0.8;
+            box-shadow: 0 0 5px rgba(0,0,0,0.8);
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        .status {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #34d399;
+            height: 30px;
+        }
+
+        #final-result {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .final-offset {
+            font-size: 60px;
+            font-weight: 800;
+            color: #fbbf24;
+            margin: 20px 0;
+            font-family: monospace;
+            text-shadow: 0 0 20px rgba(251, 191, 36, 0.4);
+        }
+
+        .osu-btn {
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            font-size: 15px;
+            height: 50px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border: none;
+            background-color: #5f46b3;
+            padding: 0 24px;
+            transition: 0.15s;
+            outline: none;
+        }
+
+        .osu-btn:hover { background-color: #7356d9; }
+        .osu-btn.success { background-color: #10b981; }
+        .osu-btn.success:hover { background-color: #34d399; }
+    </style>
+</head>
+<body>
+    <div class="container" id="setup-view">
+        <div class="title">音频延迟自动校准</div>
+        <div class="desc" id="desc">
+            准备好后点击下方开始测试。<br>
+            测试共进行 3 轮。每轮中，请<b>仔细看着中间的方块</b>，在它亮起的同时按下任意按键。<br>
+            前 4 拍为预备拍，接下来的 16 拍将会记录您的延迟。
+        </div>
+
+        <div id="visual-beat" class="visual-beat"></div>
+
+        <div class="meter-container">
+            <div class="meter-p50"></div>
+            <div class="meter-p100"></div>
+            <div class="meter-p200"></div>
+            <div class="meter-p300"></div>
+            <div class="meter-center"></div>
+            <div id="meter-marks"></div>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div class="controls">
+            <button id="start-btn" class="osu-btn" onclick="startCalibration()">开始第 1 轮测试</button>
+        </div>
+    </div>
+
+    <div class="container" id="final-result">
+        <div class="title">校准完成</div>
+        <div class="desc">结合您这三次击打的偏差，我们计算出了最适合您的音频延迟值：</div>
+        <div class="final-offset" id="final-offset">0 ms</div>
+        <button class="osu-btn success" onclick="applyAndClose()">应用并关闭</button>
+    </div>
+
+    <script>
+        let audioCtx;
+        let isPlaying = false;
+        let currentRound = 1;
+        let currentOffset = 0; 
+        const BPM = 120;
+        const beatInterval = 60000 / BPM; 
+        const totalBeats = 20; 
+
+        let startTime = 0;
+        let hitErrors = [];
+        let recordedBeats = new Set();
+        let frameReqId;
+
+        function startCalibration() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            document.getElementById('start-btn').style.display = 'none';
+            document.getElementById('desc').innerHTML = `第 <b style="color:#3b82f6;">${currentRound}</b> / 3 次调整<br>请尽量看着中间的方块，在它亮起的同时按下任意按键。`;
+            document.getElementById('status').innerText = '准备...';
+
+            hitErrors = [];
+            recordedBeats.clear();
+            document.getElementById('meter-marks').innerHTML = '';
+
+            startTime = audioCtx.currentTime + 1.0; 
+
+            scheduleBeats();
+            isPlaying = true;
+            if (frameReqId) cancelAnimationFrame(frameReqId);
+            frameReqId = requestAnimationFrame(updateVisuals);
+        }
+
+        function scheduleBeats() {
+            for (let i = 0; i < totalBeats; i++) {
+                const isAccent = (i % 4 === 0);
+                const expectedVisTime = startTime + i * (beatInterval / 1000); 
+                const audioPlayTime = expectedVisTime - (currentOffset / 1000); 
+                playBeep(audioPlayTime, isAccent);
+            }
+        }
+
+        function playBeep(time, isAccent) {
+            if (time < audioCtx.currentTime) return; 
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.value = isAccent ? 880 : 440;
+
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.8, time + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(time);
+            osc.stop(time + 0.1);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.repeat || !isPlaying) return;
+
+            const now = audioCtx.currentTime;
+
+            let closestBeat = -1;
+            let minDiff = Infinity;
+
+            for (let i = 4; i < totalBeats; i++) {
+                const visTime = startTime + i * (beatInterval / 1000);
+                const diff = now - visTime;
+                if (Math.abs(diff) < minDiff) {
+                    minDiff = Math.abs(diff);
+                    closestBeat = i;
+                }
+            }
+
+            if (closestBeat !== -1 && minDiff < 0.25 && !recordedBeats.has(closestBeat)) {
+                recordedBeats.add(closestBeat);
+                const errMs = (now - (startTime + closestBeat * (beatInterval / 1000))) * 1000;
+                hitErrors.push(errMs);
+                drawHitMark(errMs);
+            }
+        });
+
+        function updateVisuals() {
+            if (!isPlaying) return;
+
+            const now = audioCtx.currentTime;
+            const beatBox = document.getElementById('visual-beat');
+
+            const elapsed = now - startTime;
+            if (elapsed > totalBeats * (beatInterval / 1000) + 0.5) {
+                endRound();
+                return;
+            }
+
+            const currentVisBeatExact = elapsed / (beatInterval / 1000);
+            const closestVisBeat = Math.round(currentVisBeatExact);
+
+            if (closestVisBeat >= 0 && closestVisBeat < totalBeats && Math.abs(currentVisBeatExact - closestVisBeat) < 0.15) {
+                const isAccent = (closestVisBeat % 4 === 0);
+                if (closestVisBeat < 4) {
+                    beatBox.innerText = 4 - closestVisBeat;
+                    beatBox.className = 'visual-beat ' + (isAccent ? 'accent' : 'beat');
+                } else {
+                    beatBox.innerText = '';
+                    beatBox.className = 'visual-beat ' + (isAccent ? 'accent' : 'beat');
+                }
+            } else {
+                beatBox.className = 'visual-beat';
+                beatBox.innerText = '';
+            }
+
+            frameReqId = requestAnimationFrame(updateVisuals);
+        }
+
+        function drawHitMark(errMs) {
+            let percent = (errMs / 150) * 50; 
+            if (percent < -50) percent = -50;
+            if (percent > 50) percent = 50;
+
+            const mark = document.createElement('div');
+            mark.className = 'hit-mark';
+            mark.style.left = (50 + percent) + '%';
+
+            const absErr = Math.abs(errMs);
+            if (absErr <= 16) mark.style.backgroundColor = '#ffffff';
+            else if (absErr <= 49) mark.style.backgroundColor = '#fbbf24';
+            else if (absErr <= 112) mark.style.backgroundColor = '#60a5fa';
+            else mark.style.backgroundColor = '#a78bfa';
+
+            document.getElementById('meter-marks').appendChild(mark);
+        }
+
+        function endRound() {
+            isPlaying = false;
+            document.getElementById('visual-beat').className = 'visual-beat';
+            document.getElementById('visual-beat').innerText = '';
+
+            let avg = 0;
+            if (hitErrors.length > 0) {
+                if (hitErrors.length > 2) {
+                    hitErrors.sort((a, b) => a - b);
+                    const valid = hitErrors.slice(1, -1);
+                    const sum = valid.reduce((a, b) => a + b, 0);
+                    avg = sum / valid.length;
+                } else {
+                    const sum = hitErrors.reduce((a, b) => a + b, 0);
+                    avg = sum / hitErrors.length;
+                }
+            }
+
+            currentOffset += avg;
+
+            if (currentRound < 3) {
+                currentRound++;
+                document.getElementById('status').innerText = `本轮平均偏差: ${avg > 0 ? '+' : ''}${avg.toFixed(1)}ms。已应用到下一轮。`;
+                document.getElementById('start-btn').innerText = '开始第 ' + currentRound + ' 轮';
+                document.getElementById('start-btn').style.display = 'inline-block';
+            } else {
+                document.getElementById('setup-view').style.display = 'none';
+                document.getElementById('final-result').style.display = 'flex';
+                document.getElementById('final-offset').innerText = Math.round(currentOffset) + ' ms';
+            }
+        }
+
+        function applyAndClose() {
+            let settings = JSON.parse(localStorage.getItem('webmania_settings')) || {};
+            settings.offset = Math.round(currentOffset);
+            localStorage.setItem('webmania_settings', JSON.stringify(settings));
+
+            if (window.opener && window.opener.osuSliders && window.opener.osuSliders['offset']) {
+                window.opener.osuSliders['offset'].setValue(settings.offset);
+            }
+
+            window.close();
+        }
+    </script>
+</body>
+</html>
