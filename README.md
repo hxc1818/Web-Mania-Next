@@ -32,9 +32,10 @@
 
 ## 🖼️ 游戏截图
 
-\<img width="1920" height="1040" alt="select-screen" src="[https://github.com/user-attachments/assets/e487ccc7-4038-4c6e-b77c-2520337d56c0](https://github.com/user-attachments/assets/e487ccc7-4038-4c6e-b77c-2520337d56c0)" /\>
-\<img width="1920" height="1040" alt="multiplayer" src="[https://github.com/user-attachments/assets/f74da7d2-0e25-471d-93c0-8239c8f33ae1](https://github.com/user-attachments/assets/f74da7d2-0e25-471d-93c0-8239c8f33ae1)" /\>
-\<img width="1920" height="1040" alt="gameplay" src="[https://github.com/user-attachments/assets/9ddaf2cf-4ba2-4006-b4b0-53592f855b01](https://github.com/user-attachments/assets/9ddaf2cf-4ba2-4006-b4b0-53592f855b01)" /\>
+<img width="1920" height="1040" alt="select-screen" src="https://github.com/user-attachments/assets/39f8fdb6-5c38-400c-98f5-76274a42cfce" />
+<img width="1920" height="1040" alt="multiplayer" src="https://github.com/user-attachments/assets/dad0c48a-7bc2-4555-9426-d1d1d2ea88e8" />
+<img width="1920" height="1040" alt="gameplay" src="https://github.com/user-attachments/assets/b054955f-e643-4ca6-b699-d5694b91c385" />
+
 
 ## 🚀 快速开始
 
