@@ -1,7 +1,7 @@
 {
-  "name": "client",
+  "name": "web-mania-next",
   "version": "1.0.0",
-  "description": "Web Mania Next Client",
+  "description": "基于 Electron 和 HTML5 Canvas 构建的高性能跨平台下落式音乐游戏",
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,10 +9,26 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "osu",
+    "mania",
+    "rhythm-game",
+    "electron",
+    "canvas",
+    "multiplayer",
+    "web-mania"
+  ],
+  "author": "hxc1818 <hxc1818@outlook.com>",
+  "license": "MIT",
   "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hxc1818/Web-Mania-Next.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hxc1818/Web-Mania-Next/issues"
+  },
+  "homepage": "https://github.com/hxc1818/Web-Mania-Next#readme",
   "dependencies": {
     "adm-zip": "^0.5.10",
     "axios": "^1.6.0",
@@ -26,8 +42,8 @@
     "electron-packager": "^17.1.2"
   },
   "build": {
-    "appId": "com.yourname.client",
-    "productName": "MyElectronApp",
+    "appId": "com.hxc1818.webmanianext",
+    "productName": "Web Mania Next",
     "directories": {
       "output": "dist"
     },
@@ -40,7 +56,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "我的应用"
+      "shortcutName": "Web Mania Next"
     },
     "mac": {
       "target": [
