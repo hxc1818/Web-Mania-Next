@@ -81,7 +81,7 @@ const defaultSettings = {
     threadMode: 'single',
     showFps: false,
     hwAccel: true,
-    multiId: ''
+    highPrecision: false, sensitivity: 1.0, confineCursor: 'never', disableWheel: false, disableClick: false, multiId: ''
 };
 
 for (let i = 1; i <= 18; i++) {
@@ -139,7 +139,7 @@ const i18nDict = {
         sort_asc: "升序", sort_desc: "降序", select_song_start: "选择一首歌曲开始",
         loading_map: "正在加载谱面...", local_scores: "本地分数", global_scores: "全球排行榜",
         random_map: "[ 随机选歌 ]", rend_default: "默认", unlimited: "无限制",
-        single_thread: "单线程", multi_thread: "多线程"
+        single_thread: "单线程", multi_thread: "多线程", high_precision: "高精度鼠标", mouse_sensitivity: "光标灵敏度", confine_cursor: "将光标限制在窗口内", confine_never: "不限制", confine_play: "仅在游玩时限制", confine_always: "总是限制", disable_wheel: "在游戏中禁用鼠标滚轮调整音量", disable_click: "在游戏中禁用鼠标点击", calibrate_offset: "主动调整音频延迟"
     },
     en: {
         settings: "Settings", cat_general: "General", open_wizard: "Open Setup Wizard",
@@ -161,7 +161,7 @@ const i18nDict = {
         sort_asc: "Ascending", sort_desc: "Descending", select_song_start: "Select a song to start",
         loading_map: "Loading beatmap...", local_scores: "Local Scores", global_scores: "Global Rankings",
         random_map: "[ Random Map ]", rend_default: "Default", unlimited: "Unlimited",
-        single_thread: "Single Thread", multi_thread: "Multi Thread"
+        single_thread: "Single Thread", multi_thread: "Multi Thread", high_precision: "Raw Input", mouse_sensitivity: "Mouse Sensitivity", confine_cursor: "Confine Cursor", confine_never: "Never", confine_play: "During Gameplay", confine_always: "Always", disable_wheel: "Disable Mouse Wheel in Game", disable_click: "Disable Mouse Clicks in Game", calibrate_offset: "Active Audio Offset Calibration"
     }
 };
 
@@ -184,10 +184,29 @@ function saveSysConfig() {
     }).catch(()=>{});
 }
 
-function saveSettings() {
-    localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
-    if (userSettings.multiId) localStorage.setItem('wm_username', userSettings.multiId);
+let _saveSettingsTimer = null;
+function saveSettings(immediate = false) {
+    if (immediate) {
+        if (_saveSettingsTimer) { clearTimeout(_saveSettingsTimer); _saveSettingsTimer = null; }
+        try {
+            localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
+            if (userSettings.multiId) localStorage.setItem('wm_username', userSettings.multiId);
+        } catch(e) {}
+        return;
+    }
+    if (_saveSettingsTimer) clearTimeout(_saveSettingsTimer);
+    _saveSettingsTimer = setTimeout(() => {
+        try {
+            localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
+            if (userSettings.multiId) localStorage.setItem('wm_username', userSettings.multiId);
+        } catch(e) {}
+        _saveSettingsTimer = null;
+    }, 150);
 }
+
+window.addEventListener('beforeunload', () => {
+    saveSettings(true);
+});
 
 let history = JSON.parse(localStorage.getItem('webmania_history') || '{}');
 
@@ -223,3 +242,317 @@ function getStarColor(stars) {
     }
     return '#000000';
 }
+
+class HighPrecisionMouseManager {
+    constructor() {
+        this.isLocked = false;
+        this.isMouseDown = false;
+        this.cursorX = window.innerWidth / 2;
+        this.cursorY = window.innerHeight / 2;
+        this.lastClientX = window.innerWidth / 2;
+        this.lastClientY = window.innerHeight / 2;
+        this.dragTarget = null;
+        this.mouseDownTarget = null;
+        this.mouseDownTime = 0;
+        this.mouseDownX = 0;
+        this.mouseDownY = 0;
+        this.lastHoveredTarget = null;
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => this.init());
+        } else {
+            this.init();
+        }
+    }
+
+    init() {
+        this.createCursorDOM();
+        this.bindEvents();
+        this.onSettingsChange();
+    }
+
+    createCursorDOM() {
+        if (document.getElementById('wmn-custom-cursor')) {
+            this.cursorEl = document.getElementById('wmn-custom-cursor');
+            return;
+        }
+        const cursor = document.createElement('div');
+        cursor.id = 'wmn-custom-cursor';
+        cursor.className = 'wmn-cursor';
+        cursor.style.display = 'none';
+        cursor.innerHTML = `
+            <div class="wmn-cursor-inner">
+                <div class="wmn-cursor-dot"></div>
+                <div class="wmn-cursor-ring"></div>
+            </div>
+        `;
+        document.body.appendChild(cursor);
+        this.cursorEl = cursor;
+    }
+
+    shouldLock() {
+        const s = window.userSettings || {};
+        const isGame = window.location.pathname.includes('game.html');
+        if (s.confineCursor === 'always') return true;
+        if (s.confineCursor === 'play' && isGame) return true;
+        if (s.highPrecision) return true;
+        if (s.sensitivity !== undefined && Math.abs(s.sensitivity - 1.0) > 0.001) return true;
+        return false;
+    }
+
+    onSettingsChange() {
+        if (!this.shouldLock()) {
+            if (document.pointerLockElement) {
+                try { document.exitPointerLock(); } catch(e) {}
+            }
+        }
+    }
+
+    requestLock() {
+        const target = document.body;
+        if (!target || document.pointerLockElement) return;
+        const s = window.userSettings || {};
+        if (s.highPrecision) {
+            try {
+                const promise = target.requestPointerLock({ unadjustedMovement: true });
+                if (promise && promise.catch) {
+                    promise.catch(() => {
+                        try { target.requestPointerLock(); } catch(e){}
+                    });
+                }
+            } catch(e) {
+                try { target.requestPointerLock(); } catch(err){}
+            }
+        } else {
+            try { target.requestPointerLock(); } catch(e){}
+        }
+    }
+
+    updateCursorPos() {
+        if (this.cursorEl) {
+            this.cursorEl.style.transform = `translate3d(${this.cursorX}px, ${this.cursorY}px, 0)`;
+        }
+    }
+
+    bindEvents() {
+        document.addEventListener('pointerlockchange', () => {
+            const isLocked = !!document.pointerLockElement;
+            this.isLocked = isLocked;
+            if (isLocked) {
+                document.body.classList.add('wmn-pointer-locked');
+                if (this.cursorEl) {
+                    this.cursorEl.style.display = 'block';
+                    this.updateCursorPos();
+                }
+            } else {
+                document.body.classList.remove('wmn-pointer-locked');
+                if (this.cursorEl) {
+                    this.cursorEl.style.display = 'none';
+                    this.cursorEl.classList.remove('active');
+                }
+                this.isMouseDown = false;
+                this.dragTarget = null;
+                this.mouseDownTarget = null;
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!this.isLocked) {
+                this.lastClientX = e.clientX;
+                this.lastClientY = e.clientY;
+                return;
+            }
+            if (!e.isTrusted) return;
+
+            const s = window.userSettings || {};
+            const sens = (s.sensitivity !== undefined && s.sensitivity > 0) ? s.sensitivity : 1.0;
+
+            const dx = e.movementX * sens;
+            const dy = e.movementY * sens;
+
+            this.cursorX = Math.max(0, Math.min(window.innerWidth - 1, this.cursorX + dx));
+            this.cursorY = Math.max(0, Math.min(window.innerHeight - 1, this.cursorY + dy));
+            this.updateCursorPos();
+
+            if (this.isMouseDown && this.dragTarget) {
+                this.dragTarget.dispatchEvent(new PointerEvent('pointermove', {
+                    bubbles: true, cancelable: true,
+                    clientX: this.cursorX, clientY: this.cursorY,
+                    pointerId: 1, isPrimary: true,
+                    button: 0, buttons: 1
+                }));
+                this.dragTarget.dispatchEvent(new MouseEvent('mousemove', {
+                    bubbles: true, cancelable: true,
+                    clientX: this.cursorX, clientY: this.cursorY,
+                    button: 0, buttons: 1
+                }));
+            } else {
+                const target = document.elementFromPoint(this.cursorX, this.cursorY);
+                if (target !== this.lastHoveredTarget) {
+                    if (this.lastHoveredTarget) {
+                        this.lastHoveredTarget.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: this.cursorX, clientY: this.cursorY }));
+                        this.lastHoveredTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false, clientX: this.cursorX, clientY: this.cursorY }));
+                    }
+                    if (target) {
+                        target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: this.cursorX, clientY: this.cursorY }));
+                        target.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, clientX: this.cursorX, clientY: this.cursorY }));
+                    }
+                    this.lastHoveredTarget = target;
+                }
+            }
+        }, { passive: false });
+
+        document.addEventListener('mousedown', (e) => {
+            if (!e.isTrusted) return;
+            if (!this.isLocked) {
+                if (this.shouldLock()) {
+                    this.cursorX = e.clientX;
+                    this.cursorY = e.clientY;
+                    this.requestLock();
+                }
+                return;
+            }
+
+            this.isMouseDown = true;
+            if (this.cursorEl) this.cursorEl.classList.add('active');
+
+            const isGame = window.location.pathname.includes('game.html');
+            if (isGame && window.userSettings && window.userSettings.disableClick) {
+                const pauseScreen = document.getElementById('pause-screen');
+                const resultScreen = document.getElementById('result-screen');
+                const isPaused = pauseScreen && (pauseScreen.classList.contains('active') || pauseScreen.style.display === 'flex' || pauseScreen.style.display === 'block');
+                const isResult = resultScreen && (resultScreen.classList.contains('active') || resultScreen.style.display === 'flex' || resultScreen.style.display === 'block');
+                if (!isPaused && !isResult) {
+                    return;
+                }
+            }
+
+            const target = document.elementFromPoint(this.cursorX, this.cursorY);
+            this.dragTarget = target;
+            this.mouseDownTarget = target;
+            this.mouseDownTime = Date.now();
+            this.mouseDownX = this.cursorX;
+            this.mouseDownY = this.cursorY;
+
+            if (target) {
+                target.dispatchEvent(new PointerEvent('pointerdown', {
+                    bubbles: true, cancelable: true,
+                    clientX: this.cursorX, clientY: this.cursorY,
+                    pointerId: 1, isPrimary: true,
+                    button: e.button, buttons: e.buttons
+                }));
+                target.dispatchEvent(new MouseEvent('mousedown', {
+                    bubbles: true, cancelable: true,
+                    clientX: this.cursorX, clientY: this.cursorY,
+                    button: e.button, buttons: e.buttons
+                }));
+
+                if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.getAttribute('tabindex') !== null) {
+                    target.focus();
+                } else {
+                    const focusable = target.closest('input, textarea, [tabindex]');
+                    if (focusable) focusable.focus();
+                }
+            }
+        }, true);
+
+        document.addEventListener('mouseup', (e) => {
+            if (!e.isTrusted) return;
+            if (!this.isLocked) return;
+
+            this.isMouseDown = false;
+            if (this.cursorEl) this.cursorEl.classList.remove('active');
+
+            const isGame = window.location.pathname.includes('game.html');
+            if (isGame && window.userSettings && window.userSettings.disableClick) {
+                const pauseScreen = document.getElementById('pause-screen');
+                const resultScreen = document.getElementById('result-screen');
+                const isPaused = pauseScreen && (pauseScreen.classList.contains('active') || pauseScreen.style.display === 'flex' || pauseScreen.style.display === 'block');
+                const isResult = resultScreen && (resultScreen.classList.contains('active') || resultScreen.style.display === 'flex' || resultScreen.style.display === 'block');
+                if (!isPaused && !isResult) {
+                    return;
+                }
+            }
+
+            const target = document.elementFromPoint(this.cursorX, this.cursorY);
+            if (this.dragTarget) {
+                this.dragTarget.dispatchEvent(new PointerEvent('pointerup', {
+                    bubbles: true, cancelable: true,
+                    clientX: this.cursorX, clientY: this.cursorY,
+                    pointerId: 1, isPrimary: true,
+                    button: e.button, buttons: e.buttons
+                }));
+                this.dragTarget.dispatchEvent(new MouseEvent('mouseup', {
+                    bubbles: true, cancelable: true,
+                    clientX: this.cursorX, clientY: this.cursorY,
+                    button: e.button, buttons: e.buttons
+                }));
+            }
+
+            if (target && this.mouseDownTarget) {
+                const dist = Math.hypot(this.cursorX - this.mouseDownX, this.cursorY - this.mouseDownY);
+                if (dist < 20 && (Date.now() - this.mouseDownTime) < 800) {
+                    if (target === this.mouseDownTarget || target.contains(this.mouseDownTarget) || this.mouseDownTarget.contains(target)) {
+                        target.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true, cancelable: true,
+                            clientX: this.cursorX, clientY: this.cursorY,
+                            button: e.button, buttons: e.buttons
+                        }));
+                    }
+                }
+            }
+            this.dragTarget = null;
+            this.mouseDownTarget = null;
+        }, true);
+
+        document.addEventListener('wheel', (e) => {
+            if (!e.isTrusted) return;
+            const isGame = window.location.pathname.includes('game.html');
+            if (isGame) {
+                if (window.userSettings && window.userSettings.disableWheel) {
+                    e.preventDefault();
+                    return;
+                } else if (typeof window.adjustGameVolumeByWheel === 'function') {
+                    e.preventDefault();
+                    window.adjustGameVolumeByWheel(e.deltaY);
+                    return;
+                }
+            }
+
+            if (this.isLocked) {
+                const target = document.elementFromPoint(this.cursorX, this.cursorY);
+                if (target) {
+                    let el = target;
+                    while (el && el !== document.documentElement && el !== document.body) {
+                        const style = window.getComputedStyle(el);
+                        if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+                            el.scrollTop += e.deltaY;
+                            break;
+                        }
+                        el = el.parentElement;
+                    }
+                    target.dispatchEvent(new WheelEvent('wheel', {
+                        bubbles: true, cancelable: true,
+                        clientX: this.cursorX, clientY: this.cursorY,
+                        deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode
+                    }));
+                }
+            }
+        }, { passive: false });
+
+        document.addEventListener('contextmenu', (e) => {
+            if (!e.isTrusted) return;
+            if (!this.isLocked) return;
+            const target = document.elementFromPoint(this.cursorX, this.cursorY);
+            if (target) {
+                target.dispatchEvent(new MouseEvent('contextmenu', {
+                    bubbles: true, cancelable: true,
+                    clientX: this.cursorX, clientY: this.cursorY,
+                    button: 2
+                }));
+            }
+        }, true);
+    }
+}
+
+window.mouseManager = new HighPrecisionMouseManager();

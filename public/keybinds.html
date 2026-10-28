@@ -34,6 +34,10 @@
     </div>
 
     <script>
+        try {
+            window.moveTo(0, 0);
+            window.resizeTo(screen.availWidth, screen.availHeight);
+        } catch(e) {}
         let settings = JSON.parse(localStorage.getItem('webmania_settings')) || {};
         if(!settings.keyBinds) settings.keyBinds = {};
         

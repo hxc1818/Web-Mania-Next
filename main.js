@@ -8,8 +8,6 @@ app.commandLine.appendSwitch('disable-frame-rate-limit');
 app.commandLine.appendSwitch('disable-gpu-vsync');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
-
 const userDataPath = path.join(app.getPath('userData'), 'WebManiaData');
 if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath, { recursive: true });
 
@@ -18,12 +16,15 @@ const configPath = path.join(userDataPath, 'sys_config.json');
 let sysConfig = {};
 try { if (fs.existsSync(configPath)) sysConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e){}
 
-if (sysConfig.renderer === 'd3d12') app.commandLine.appendSwitch('use-angle', 'd3d12');
-else if (sysConfig.renderer === 'd3d11') app.commandLine.appendSwitch('use-angle', 'd3d11');
-else if (sysConfig.renderer === 'graphite') {
-    app.commandLine.appendSwitch('enable-features', 'SkiaGraphite'); // 注意是 SkiaGraphite
+const enabledFeatures = ['SharedArrayBuffer'];
+if (sysConfig.renderer === 'graphite') {
+    enabledFeatures.push('SkiaGraphite');
     app.commandLine.appendSwitch('use-dawn-backend', 'd3d12'); 
 }
+app.commandLine.appendSwitch('enable-features', enabledFeatures.join(','));
+
+if (sysConfig.renderer === 'd3d12') app.commandLine.appendSwitch('use-angle', 'd3d12');
+else if (sysConfig.renderer === 'd3d11') app.commandLine.appendSwitch('use-angle', 'd3d11');
 
 global.USER_DATA_PATH = userDataPath;
 
@@ -48,6 +49,31 @@ async function createWindow() {
     });
 
     mainWindow.loadURL(`http://localhost:${currentPort}`);
+
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+                autoHideMenuBar: true
+            }
+        };
+    });
+
+    mainWindow.webContents.on('did-create-window', (childWindow, { url }) => {
+        if (url && url.includes('keybinds.html')) {
+            childWindow.maximize();
+            childWindow.webContents.on('did-finish-load', () => {
+                childWindow.maximize();
+            });
+        }
+    });
+
+    mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+        if (permission === 'pointerLock') {
+            return callback(true);
+        }
+        callback(true);
+    });
 
     // Kiosk 动态控制
     winControl.on('set-kiosk', (val) => {

@@ -338,6 +338,8 @@ class GameEngine {
         this.state.totalBasePossible = totalJudgements * SCORES.max;
         this.lastNoteTime = maxTime;
         this.totalLengthMs = maxTime;
+        this.drawStartIndex = 0;
+        this.judgeStartIndex = 0;
 
         this.hudScore = document.getElementById('hud-score');
         this.hudAcc = document.getElementById('hud-acc');
@@ -878,8 +880,18 @@ class GameEngine {
         const missThreshold = this.isReplay ? this.judge.p50 + 400 : this.judge.p50;
 
         if (!this.isSpectator) {
-            for (let i = 0; i < this.notes.length; i++) {
+            while (this.judgeStartIndex < this.notes.length) {
+                const n = this.notes[this.judgeStartIndex];
+                if (n.type === 'hold' ? n.tailJudged : n.headJudged) {
+                    this.judgeStartIndex++;
+                } else {
+                    break;
+                }
+            }
+
+            for (let i = this.judgeStartIndex; i < this.notes.length; i++) {
                 const note = this.notes[i];
+                if (note.time - now > missThreshold) break;
                 
                 // 完全漏掉（没有按）
                 if (!note.headJudged && now > note.time + missThreshold) { 
@@ -929,7 +941,22 @@ class GameEngine {
             }
         }
 
-        for (let i = this.notes.length - 1; i >= 0; i--) {
+        while (this.drawStartIndex < this.notes.length) {
+            const n = this.notes[this.drawStartIndex];
+            if (n.type === 'hold' ? n.tailJudged : n.headJudged) {
+                this.drawStartIndex++;
+            } else {
+                break;
+            }
+        }
+
+        const maxFutureTime = ((this.hitLineY + 60) / this.scrollSpeed) * 1000;
+        let endIdx = this.drawStartIndex;
+        while (endIdx < this.notes.length && (this.notes[endIdx].time - now) < maxFutureTime) {
+            endIdx++;
+        }
+
+        for (let i = endIdx - 1; i >= this.drawStartIndex; i--) {
             const note = this.notes[i]; const color = this.laneColors[note.column]; const x = offsetX + note.column * this.laneWidth;
             if (note.type === 'hold') {
                 if (note.tailJudged) continue;
@@ -1199,13 +1226,18 @@ async function initGame(isSpectating) {
                     };
 
                     decoderVideo.onplay = () => {
-                        if (window.videoRenderLoopId) cancelAnimationFrame(window.videoRenderLoopId);
+                        if (window.videoRenderLoopId) {
+                            cancelAnimationFrame(window.videoRenderLoopId);
+                            window.videoRenderLoopId = null;
+                        }
                         const ctx = videoCanvas ? videoCanvas.getContext('2d') : null;
                         function renderVideoLoop() {
                             if (!decoderVideo.paused && !decoderVideo.ended && ctx && videoCanvas) {
                                 ctx.drawImage(decoderVideo, 0, 0, videoCanvas.width, videoCanvas.height);
+                                window.videoRenderLoopId = requestAnimationFrame(renderVideoLoop);
+                            } else {
+                                window.videoRenderLoopId = null;
                             }
-                            window.videoRenderLoopId = requestAnimationFrame(renderVideoLoop);
                         }
                         renderVideoLoop();
                     };
@@ -1377,17 +1409,34 @@ function parseOsuFile(osuText) {
         }
     }
     
+    samples.sort((a,b) => a.time - b.time);
+    let sIdx = 0;
     for (let note of notes) {
         note.samples = [];
         if (note.filename) note.samples.push({ filename: note.filename, volume: 100 });
-        for (let s of samples) {
-            if (Math.abs(s.time - note.time) <= 5) {
-                note.samples.push({ filename: s.filename, volume: s.volume });
-            }
+        while (sIdx < samples.length && samples[sIdx].time < note.time - 5) {
+            sIdx++;
+        }
+        for (let j = sIdx; j < samples.length && samples[j].time <= note.time + 5; j++) {
+            note.samples.push({ filename: samples[j].filename, volume: samples[j].volume });
         }
     }
 
-    if (beatLengths.length > 0) bpm = Math.round(60000 / beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop());
+    if (beatLengths.length > 0) {
+        const counts = new Map();
+        let maxCount = 0;
+        let mainBL = beatLengths[0];
+        for (let i = 0; i < beatLengths.length; i++) {
+            const bl = beatLengths[i];
+            const c = (counts.get(bl) || 0) + 1;
+            counts.set(bl, c);
+            if (c > maxCount) {
+                maxCount = c;
+                mainBL = bl;
+            }
+        }
+        bpm = Math.round(60000 / mainBL);
+    }
     return { 
         notes: notes.sort((a,b) => a.time - b.time), 
         breaks: breaks.sort((a,b) => a.startTime - b.startTime),
@@ -1573,6 +1622,7 @@ function resumeGame() {
             if (countdownEl) countdownEl.innerText = count;
         } else {
             clearInterval(resumeInterval); 
+            resumeInterval = null;
             isResuming = false;
             const pauseScreen = document.getElementById('pause-screen');
             if (pauseScreen) pauseScreen.classList.remove('active');
@@ -1678,7 +1728,12 @@ window.addEventListener('keydown', (e) => {
                     escHoldTimer = setInterval(() => {
                         escProgress += 5; 
                         if (gameEngine && gameEngine.isPaused) gameEngine.draw(gameEngine.getTime());
-                        if (escProgress >= 100) { quitGame(); clearInterval(escHoldTimer); }
+                        if (escProgress >= 100) { 
+                            clearInterval(escHoldTimer); 
+                            escHoldTimer = null; 
+                            escProgress = 0;
+                            quitGame(); 
+                        }
                     }, 50);
                 }
             } else {
@@ -1740,6 +1795,69 @@ window.addEventListener('keyup', (e) => {
         }
     }
     if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode && !gameEngine.isSpectator) {
-        gameEngine.onKeyUp(KEY_MAP[e.code]); 
+        gameEngine.onKeyUp(KEY_MAP[e.code]);
     }
 });
+window.adjustGameVolumeByWheel = function(deltaY) {
+    if (userSettings && userSettings.disableWheel) return;
+    let mVol = userSettings.masterVol !== undefined ? userSettings.masterVol : 100;
+    const step = deltaY < 0 ? 5 : -5;
+    mVol = Math.max(0, Math.min(100, mVol + step));
+    userSettings.masterVol = mVol;
+    localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
+    
+    if (gameEngine && gameEngine.masterGain && gameEngine.masterGain.gain) {
+        const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+        const target = (document.hasFocus() ? mVol : bgVol) / 100;
+        if (gameEngine.audioCtx && gameEngine.audioCtx.state === 'running') {
+            gameEngine.masterGain.gain.setTargetAtTime(target, gameEngine.audioCtx.currentTime, 0.05);
+        } else {
+            gameEngine.masterGain.gain.value = target;
+        }
+    }
+    showInGameVolumeToast(mVol);
+};
+
+function showInGameVolumeToast(vol) {
+    let toast = document.getElementById('volume-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'volume-toast';
+        toast.style.position = 'fixed';
+        toast.style.bottom = '30px';
+        toast.style.right = '30px';
+        toast.style.background = 'rgba(20, 20, 25, 0.9)';
+        toast.style.border = '1px solid #3b82f6';
+        toast.style.padding = '10px 20px';
+        toast.style.borderRadius = '8px';
+        toast.style.color = '#fff';
+        toast.style.fontWeight = '700';
+        toast.style.fontSize = '16px';
+        toast.style.zIndex = '99999';
+        toast.style.pointerEvents = 'none';
+        toast.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.4)';
+        toast.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+        document.body.appendChild(toast);
+    }
+    toast.innerText = `主音量: ${Math.round(vol)}%`;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+    clearTimeout(toast._fadeTimer);
+    toast._fadeTimer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+    }, 1200);
+}
+
+window.addEventListener('click', (e) => {
+    if (userSettings && userSettings.disableClick && gameEngine && gameEngine.isRunning && !gameEngine.isPaused) {
+        const pauseScreen = document.getElementById('pause-screen');
+        const resultScreen = document.getElementById('result-screen');
+        const isPaused = pauseScreen && (pauseScreen.classList.contains('active') || pauseScreen.style.display === 'flex');
+        const isResult = resultScreen && (resultScreen.classList.contains('active') || resultScreen.style.display === 'flex');
+        if (!isPaused && !isResult) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    }
+}, true);

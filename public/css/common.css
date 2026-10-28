@@ -42,8 +42,7 @@ body, html {
     text-decoration: none;
     padding: 0 24px;
     white-space: nowrap;
-    --btn-bg-scale: 1;
-    --btn-anim-dur: 3s;
+    --btn-anim-dur: 6s;
 }
 
 .osu-btn:active { transform: scale(0.96); }
@@ -64,33 +63,34 @@ body, html {
     font-size: 13px;
     padding: 0 16px;
     border-radius: 6px;
-    --btn-bg-scale: 1.8;
-    --btn-anim-dur: 4.5s;
+    --btn-anim-dur: 8s;
 }
 
 .osu-btn::before {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0; left: 0; width: 100%; height: calc(100% + 120px);
     z-index: -1;
     pointer-events: none;
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
-    mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
     
-    background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.25)' stroke-width='2'/%3E%3Cpolygon points='15,40 45,95 -15,95' fill='rgba(255,255,255,0.02)' stroke='rgba(255,255,255,0.1)' stroke-width='1.5'/%3E%3C/svg%3E"),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='50' viewBox='0 0 100 100'%3E%3Cpolygon points='50,10 90,90 10,90' fill='rgba(255,255,255,0.04)' stroke='rgba(255,255,255,0.15)' stroke-width='2'/%3E%3Cpolygon points='85,30 115,80 55,80' fill='rgba(255,255,255,0.03)' stroke='rgba(255,255,255,0.1)' stroke-width='1'/%3E%3C/svg%3E");
-    background-repeat: repeat-y;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon points='30,15 55,60 5,60' fill='rgba(255,255,255,0.05)' stroke='rgba(255,255,255,0.2)' stroke-width='1.5'/%3E%3Cpolygon points='85,25 105,65 65,65' fill='rgba(255,255,255,0.03)' stroke='rgba(255,255,255,0.12)' stroke-width='1'/%3E%3Cpolygon points='60,75 78,110 42,110' fill='rgba(255,255,255,0.04)' stroke='rgba(255,255,255,0.18)' stroke-width='1.5'/%3E%3Cpolygon points='15,75 28,105 2,105' fill='rgba(255,255,255,0.02)' stroke='rgba(255,255,255,0.1)' stroke-width='1'/%3E%3Cpolygon points='115,80 130,110 100,110' fill='rgba(255,255,255,0.03)' stroke='rgba(255,255,255,0.12)' stroke-width='1'/%3E%3Cpolygon points='-5,80 10,110 -20,110' fill='rgba(255,255,255,0.03)' stroke='rgba(255,255,255,0.12)' stroke-width='1'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 120px 120px;
+    opacity: 0.75;
+    transition: opacity 0.2s ease;
     
-    transform: scale(var(--btn-bg-scale)) translateZ(0);
-    will-change: background-position;
-    
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
     animation: osu-btn-triangles var(--btn-anim-dur) linear infinite;
 }
 
+.osu-btn:hover::before {
+    opacity: 1;
+}
+
 @keyframes osu-btn-triangles {
-    0% { background-position: 15% 0px, 80% 0px; }
-    100% { background-position: 15% -80px, 80% -50px; }
+    0% { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(0, -120px, 0); }
 }
 
 .top-btn-pos {
@@ -106,10 +106,10 @@ body, html {
 
 .dropdown-list-wrapper {
     display: grid; grid-template-rows: 0fr; transition: all 0.2s ease-out; opacity: 0; pointer-events: none;
-    width: 100%; margin-top: 0; z-index: 20;
+    width: 100%; margin-top: 0; z-index: 9999;
     position: absolute; top: 100%; left: 0;
 }
-.dropdown-list-wrapper.open { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; margin-top: 8px; }
+.dropdown-list-wrapper.open { grid-template-rows: 1fr; opacity: 1; pointer-events: auto; margin-top: 8px; z-index: 9999; }
 .dropdown-list-inner {
     overflow: hidden; background: rgba(20, 20, 25, 0.98); border: 1px solid #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3), 0 10px 30px rgba(0,0,0,0.5); border-radius: 8px;
     backdrop-filter: blur(15px); max-height: 250px; overflow-y: auto; display: flex; flex-direction: column;
@@ -147,4 +147,57 @@ body, html {
 ::-webkit-scrollbar-thumb:hover { 
     background-color: rgba(255,255,255,0.5); 
     border-width: 1px; 
+}
+.osu-slider-wrapper.dragging .slider-thumb,
+.osu-slider-wrapper.dragging .slider-fill {
+    transition: none !important;
+}
+
+/* 高精度鼠标与自定义光标 */
+#wmn-custom-cursor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 2147483647;
+    transform: translate3d(-100px, -100px, 0);
+    will-change: transform;
+}
+.wmn-cursor-inner {
+    position: absolute;
+    top: -16px;
+    left: -16px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    transition: transform 0.08s ease-out;
+}
+#wmn-custom-cursor.active .wmn-cursor-inner {
+    transform: scale(0.82);
+}
+.wmn-cursor-ring {
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid rgba(96, 165, 250, 0.9);
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.6), inset 0 0 6px rgba(59, 130, 246, 0.3);
+    background: rgba(59, 130, 246, 0.15);
+}
+.wmn-cursor-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 0 6px #ffffff;
+    z-index: 2;
+}
+body.wmn-pointer-locked,
+body.wmn-pointer-locked * {
+    cursor: none !important;
 }

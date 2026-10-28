@@ -48,17 +48,18 @@
 #settings-sidebar {
     position: fixed; top: 0; left: -600px; width: 600px; height: 100%;
     background: rgba(20, 20, 25, 0.96); backdrop-filter: blur(15px);
-    z-index: 2000; transition: left 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 2000; transition: left 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), visibility 0.4s;
     display: flex; flex-direction: column; color: #fff; box-shadow: 10px 0 40px rgba(0,0,0,0.6);
     border-right: 1px solid rgba(255,255,255,0.05);
+    visibility: hidden; pointer-events: none;
 }
-#settings-sidebar.show { left: 0; }
+#settings-sidebar.show { left: 0; visibility: visible; pointer-events: auto; }
 .settings-header {
     background: #3b82f6; padding: 25px 20px; font-size: 28px; font-weight: 800;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3); text-shadow: 0 2px 5px rgba(0,0,0,0.5);
     letter-spacing: 1px;
 }
-.settings-content { flex: 1; overflow-y: auto; padding: 25px 30px; }
+.settings-content { flex: 1; overflow-y: auto; padding: 25px 30px; overscroll-behavior-y: contain; }
 .set-sec { margin-bottom: 40px; }
 .set-sec h2 { 
     font-size: 20px; color: #fbbf24; border-bottom: 2px solid rgba(255,255,255,0.1); 
@@ -102,9 +103,12 @@
 }
 .toggle-reset.show { opacity: 1; pointer-events: auto; }
 
-.osu-dropdown-placeholder { width: 100%; margin-bottom: 18px; }
+.osu-dropdown-placeholder { width: 100%; margin-bottom: 18px; position: relative; z-index: 1; }
+.osu-dropdown-placeholder.dropdown-open { z-index: 1000 !important; }
 .osu-dropdown-wrapper { display: flex; align-items: flex-start; position: relative; width: 100%; outline: none; user-select: none; }
+.osu-dropdown-wrapper.open { z-index: 1001 !important; }
 .osu-dropdown-container { flex-grow: 1; position: relative; z-index: 10; width: calc(100% - 52px); }
+.osu-dropdown-container.open { z-index: 1002 !important; }
 .osu-dropdown-main {
     display: flex; align-items: center; justify-content: space-between; height: 60px; padding: 0 16px;
     border-radius: 8px; transition: all 0.15s; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.05); cursor: pointer;

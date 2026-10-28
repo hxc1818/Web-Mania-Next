@@ -61,9 +61,9 @@ function parseOsuMetadataFromString(content) {
             else if (line.startsWith('AudioFilename:')) metadata.audio = line.substring(line.indexOf(':') + 1).trim();
         }
         else if (section === 'Metadata') {
-            if (line.startsWith('Title:')) metadata.title = line.split(':')[1].trim();
-            if (line.startsWith('Artist:')) metadata.artist = line.split(':')[1].trim();
-            if (line.startsWith('Version:')) metadata.version = line.split(':')[1].trim();
+            if (line.startsWith('Title:')) metadata.title = line.substring(line.indexOf(':') + 1).trim();
+            if (line.startsWith('Artist:')) metadata.artist = line.substring(line.indexOf(':') + 1).trim();
+            if (line.startsWith('Version:')) metadata.version = line.substring(line.indexOf(':') + 1).trim();
         } else if (section === 'Difficulty') {
             if (line.startsWith('CircleSize:')) {
                 circleSize = parseFloat(line.split(':')[1]);
@@ -268,7 +268,49 @@ app.post('/api/rename_map', (req, res) => {
     }
 });
 
-app.get('/api/select_folder', (req, res) => {
+app.get('/api/select_folder', async (req, res) => {
+    // 优先调用 Electron 原生现代选择器 (Windows 原生 IFileOpenDialog，支持地址栏、侧边栏和路径粘贴)
+    try {
+        let electronObj = null;
+        try {
+            const el = require('electron');
+            if (el && typeof el === 'object' && el.dialog) {
+                electronObj = el;
+            }
+        } catch(e) {}
+
+        if (electronObj && electronObj.dialog) {
+            let defaultPath = req.query.current;
+            if (!defaultPath || !fs.existsSync(defaultPath)) {
+                // 自动尝试寻找常见的默认 osu! Songs 路径
+                const localAppData = process.env.LOCALAPPDATA;
+                if (localAppData) {
+                    const osuSongs = path.join(localAppData, 'osu!', 'Songs');
+                    if (fs.existsSync(osuSongs)) defaultPath = osuSongs;
+                }
+            }
+
+            const win = electronObj.BrowserWindow 
+                ? (electronObj.BrowserWindow.getFocusedWindow() || electronObj.BrowserWindow.getAllWindows()[0] || null) 
+                : null;
+
+            const result = await electronObj.dialog.showOpenDialog(win || undefined, {
+                title: '请选择 osu! Songs 文件夹',
+                defaultPath: defaultPath,
+                properties: ['openDirectory', 'dontAddToRecent'],
+                buttonLabel: '选择此文件夹'
+            });
+
+            if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+                return res.status(400).json({ error: '已取消' });
+            }
+            return res.json({ path: result.filePaths[0] });
+        }
+    } catch(err) {
+        console.warn('Electron 原生选择器启动异常，尝试降级处理:', err);
+    }
+
+    // 非 Electron 或异常情况下的系统对话框降级处理
     const platform = os.platform();
     if (platform === 'darwin') {
         exec(`osascript -e 'POSIX path of (choose folder with prompt "请选择 osu! Songs 文件夹")'`, (err, stdout) => {
@@ -276,7 +318,8 @@ app.get('/api/select_folder', (req, res) => {
             res.json({ path: stdout.trim() });
         });
     } else if (platform === 'win32') {
-        const ps = `Add-Type -AssemblyName System.windows.forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = '请选择 osu! Songs 文件夹'; $f.ShowNewFolderButton = $false; if($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){$f.SelectedPath}`;
+        // 使用 Windows 现代通用文件对话框 (IFileDialog) 降级方案
+        const ps = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = '请选择 osu! Songs 文件夹'; $f.ValidateNames = $false; $f.CheckFileExists = $false; $f.CheckPathExists = $true; $f.FileName = '选择此文件夹'; if($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){ [System.IO.Path]::GetDirectoryName($f.FileName) }`;
         exec(`powershell -command "${ps}"`, (err, stdout) => {
             if (err || !stdout.trim()) return res.status(400).json({ error: '已取消' });
             res.json({ path: stdout.trim() });

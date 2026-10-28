@@ -106,8 +106,9 @@ class OsuSlider {
     attachEvents() {
         this.track.addEventListener('pointerdown', (e) => {
             e.preventDefault();
-            this.track.setPointerCapture(e.pointerId);
+            try { this.track.setPointerCapture(e.pointerId); } catch(err) {}
             this.isDragging = true;
+            this.wrapper.classList.add('dragging');
             this.updateFromEvent(e);
             this.wrapper.focus();
         });
@@ -117,8 +118,12 @@ class OsuSlider {
         });
 
         const endDrag = (e) => {
-            this.isDragging = false;
-            this.track.releasePointerCapture(e.pointerId);
+            if (this.isDragging) {
+                this.isDragging = false;
+                this.wrapper.classList.remove('dragging');
+                try { this.track.releasePointerCapture(e.pointerId); } catch(err) {}
+                if (typeof saveSettings === 'function') saveSettings(true);
+            }
         };
         this.track.addEventListener('pointerup', endDrag);
         this.track.addEventListener('pointercancel', endDrag);
@@ -289,7 +294,8 @@ class OsuRangeSlider {
     attachEvents() {
         this.track.addEventListener('pointerdown', (e) => {
             e.preventDefault();
-            this.track.setPointerCapture(e.pointerId);
+            try { this.track.setPointerCapture(e.pointerId); } catch(err) {}
+            this.wrapper.classList.add('dragging');
             
             const rect = this.track.getBoundingClientRect();
             let percent = (e.clientX - rect.left) / rect.width;
@@ -315,7 +321,8 @@ class OsuRangeSlider {
         const endDrag = (e) => {
             if (this.activeThumb) {
                 this.activeThumb = null;
-                this.track.releasePointerCapture(e.pointerId);
+                this.wrapper.classList.remove('dragging');
+                try { this.track.releasePointerCapture(e.pointerId); } catch(err) {}
                 if (this.onChange) this.onChange(this.minValue, this.maxValue);
             }
         };
@@ -511,10 +518,36 @@ class OsuDropdown {
         this.isOpen = state;
         if (state) {
             Object.values(window.osuDropdowns || {}).forEach(d => { if(d !== this) d.setOpen(false); });
+            if (this.container) {
+                this.container.classList.add('dropdown-open');
+                this.container.style.zIndex = '1000';
+            }
+            if (this.wrapper) {
+                this.wrapper.classList.add('open');
+                this.wrapper.style.zIndex = '1001';
+            }
+            const cont = this.container ? this.container.querySelector('.osu-dropdown-container') : null;
+            if (cont) {
+                cont.classList.add('open');
+                cont.style.zIndex = '1002';
+            }
             this.main.classList.add('open');
             this.listWrapper.classList.add('open');
             this.icon.classList.add('open');
         } else {
+            if (this.container) {
+                this.container.classList.remove('dropdown-open');
+                this.container.style.zIndex = '';
+            }
+            if (this.wrapper) {
+                this.wrapper.classList.remove('open');
+                this.wrapper.style.zIndex = '';
+            }
+            const cont = this.container ? this.container.querySelector('.osu-dropdown-container') : null;
+            if (cont) {
+                cont.classList.remove('open');
+                cont.style.zIndex = '';
+            }
             this.main.classList.remove('open');
             this.listWrapper.classList.remove('open');
             this.icon.classList.remove('open');
@@ -838,7 +871,7 @@ function initSettingsUI() {
     initSlider('slider-musicVol', 'musicVol', 'music_vol', 0, 100, 1, 100, v => v + '%', updatePreviewVolume);
     initSlider('slider-offset', 'offset', 'audio_offset', -1000, 1000, 1, 0, v => v + 'ms');
     initSlider('slider-uiScale', 'uiScale', 'ui_scale', 0.1, 4.0, 0.1, 1.0, v => v.toFixed(1) + 'x', () => applyUIScale());
-    initSlider('slider-sensitivity', 'sensitivity', '光标灵敏度', 0.1, 10.0, 0.1, 1.0, v => v.toFixed(1) + 'x');
+    initSlider('slider-sensitivity', 'sensitivity', 'mouse_sensitivity', 0.1, 10.0, 0.01, 1.0, v => v.toFixed(2) + 'x', () => { if (window.mouseManager) window.mouseManager.onSettingsChange(); });
 
     window.osuToggles = {};
     const initToggle = (id, prop, labelKey, defVal, onChangeExtra) => {
@@ -856,9 +889,9 @@ function initSettingsUI() {
     };
 
     initToggle('toggle-touchClick', 'touchClick', 'touch_click', false);
-    initToggle('toggle-highPrecision', 'highPrecision', '高精度鼠标', false);
-    initToggle('toggle-disableWheel', 'disableWheel', '在游戏中禁用鼠标滚轮调整音量', false);
-    initToggle('toggle-disableClick', 'disableClick', '在游戏中禁用鼠标点击', false);
+    initToggle('toggle-highPrecision', 'highPrecision', 'high_precision', false, () => { if (window.mouseManager) window.mouseManager.onSettingsChange(); });
+    initToggle('toggle-disableWheel', 'disableWheel', 'disable_wheel', false);
+    initToggle('toggle-disableClick', 'disableClick', 'disable_click', false);
     initToggle('toggle-hitErrorMeter', 'hitErrorMeter', 'hit_error', true);
     initToggle('toggle-noStoryboard', 'noStoryboard', 'no_sb', false);
     initToggle('toggle-autoOffset', 'autoOffset', 'auto_offset', false);
@@ -891,11 +924,11 @@ function initSettingsUI() {
         { value: 'en', label: 'English' }
     ], 'zh');
 
-    initDropdown('dropdown-confineCursor', 'confineCursor', '将光标限制在窗口内', [
+    initDropdown('dropdown-confineCursor', 'confineCursor', 'confine_cursor', [
         { value: 'never', label: '不限制' },
         { value: 'play', label: '仅在游玩时限制' },
         { value: 'always', label: '总是限制' }
-    ], 'never');
+    ], 'never', () => { if (window.mouseManager) window.mouseManager.onSettingsChange(); });
 
     const keysOpts = [];
     for(let i=1; i<=18; i++) keysOpts.push({ value: i.toString(), label: `${i}K` });
@@ -1009,7 +1042,8 @@ async function openSongsFolder() {
 
 async function browseFolder() {
     try {
-        const res = await fetch(`${LOCAL_API_URL}/select_folder`);
+        const cur = localStorage.getItem('wm_folderPath') || '';
+        const res = await fetch(`${LOCAL_API_URL}/select_folder?current=${encodeURIComponent(cur)}`);
         const data = await res.json();
         if (data.path) {
             document.getElementById('st-folder').value = data.path;
@@ -1023,7 +1057,8 @@ document.getElementById('select-folder-btn').onclick = async () => {
     const statusEl = document.getElementById('scan-status');
     if (statusEl) statusEl.innerText = '正在打开目录选择器...';
     try {
-        const res = await fetch(`${LOCAL_API_URL}/select_folder`);
+        const cur = localStorage.getItem('wm_folderPath') || '';
+        const res = await fetch(`${LOCAL_API_URL}/select_folder?current=${encodeURIComponent(cur)}`);
         const data = await res.json();
         if (data.path) {
             document.getElementById('folder-input').value = data.path;
@@ -1060,7 +1095,26 @@ function applyRecommendedOffset() {
 }
 
 function openKeybinds() {
-    window.open('keybinds.html', 'Web Mania Next Keybinds', 'width=800,height=600,autoHideMenuBar=true');
+    const w = screen.availWidth || 1280;
+    const h = screen.availHeight || 720;
+    window.open('keybinds.html', 'Web Mania Next Keybinds', `width=${w},height=${h},left=0,top=0,autoHideMenuBar=true`);
+}
+
+function openOffsetCalibration() {
+    if (previewAudio) {
+        previewAudio.pause();
+    }
+    const calibWin = window.open('offset_calibration.html', 'Web Mania Next Offset Calibration', 'width=800,height=600,autoHideMenuBar=true');
+    if (calibWin) {
+        const timer = setInterval(() => {
+            if (calibWin.closed) {
+                clearInterval(timer);
+                if (previewAudio && selectedMap && selectedMap.audioPath) {
+                    previewAudio.play().catch(() => {});
+                }
+            }
+        }, 500);
+    }
 }
 
 window.addEventListener('storage', (e) => {
@@ -1617,7 +1671,18 @@ function parseOsuFileLite(osuText) {
         }
     }
     if (beatLengths.length > 0) {
-        let mainBL = beatLengths.sort((a,b) => beatLengths.filter(v => v===a).length - beatLengths.filter(v => v===b).length).pop();
+        const counts = new Map();
+        let maxCount = 0;
+        let mainBL = beatLengths[0];
+        for (let i = 0; i < beatLengths.length; i++) {
+            const bl = beatLengths[i];
+            const c = (counts.get(bl) || 0) + 1;
+            counts.set(bl, c);
+            if (c > maxCount) {
+                maxCount = c;
+                mainBL = bl;
+            }
+        }
         bpm = Math.round(60000 / mainBL);
     }
     return { bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath };
