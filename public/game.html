@@ -48,6 +48,14 @@
         </div>
     </div>
 
+    <div id="fail-screen" class="screen">
+        <div class="pause-title" id="fail-title" style="color: #ef4444; text-shadow: 0 0 30px rgba(239, 68, 68, 0.7);">失败</div>
+        <div id="fail-buttons" style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
+            <button class="osu-btn secondary" style="width: 250px; font-size: 18px;" onclick="retryGame()">重试</button>
+            <button class="osu-btn danger" style="width: 250px; font-size: 18px;" onclick="quitGame()">退出</button>
+        </div>
+    </div>
+
     <div id="waiting-overlay">
         <h1 style="color: #60a5fa; font-size: 40px; font-weight: 800; text-shadow: 0 0 20px rgba(96, 165, 250, 0.5);">正在等待其他玩家...</h1>
         <div style="color: #aaa; font-size: 18px; margin-top: 10px;">请稍候，直到所有人完成当前谱面。</div>
@@ -70,27 +78,27 @@
         <div class="result-stats" id="result-stats-container">
             <div class="stat-col" style="flex: 1;">
                 <div class="stat-item-wrap">
-                    <div class="stat-row-inner"><span style="color: #ffffff;">MAX</span><span id="res-max">0</span></div>
+                    <div class="stat-row-inner"><span id="lbl-res-max" style="color: #ffffff;">MAX</span><span id="res-max">0</span></div>
                     <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-max" style="background: #ffffff; box-shadow: 0 0 10px rgba(255,255,255,0.5);"></div></div>
                 </div>
                 <div class="stat-item-wrap">
-                    <div class="stat-row-inner"><span style="color: #fbbf24;">300</span><span id="res-300">0</span></div>
+                    <div class="stat-row-inner"><span id="lbl-res-300" style="color: #fbbf24;">300</span><span id="res-300">0</span></div>
                     <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-300" style="background: #fbbf24; box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);"></div></div>
                 </div>
                 <div class="stat-item-wrap">
-                    <div class="stat-row-inner"><span style="color: #34d399;">200</span><span id="res-200">0</span></div>
+                    <div class="stat-row-inner"><span id="lbl-res-200" style="color: #34d399;">200</span><span id="res-200">0</span></div>
                     <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-200" style="background: #34d399; box-shadow: 0 0 10px rgba(52, 211, 153, 0.5);"></div></div>
                 </div>
                 <div class="stat-item-wrap">
-                    <div class="stat-row-inner"><span style="color: #60a5fa;">100</span><span id="res-100">0</span></div>
+                    <div class="stat-row-inner"><span id="lbl-res-100" style="color: #60a5fa;">100</span><span id="res-100">0</span></div>
                     <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-100" style="background: #60a5fa; box-shadow: 0 0 10px rgba(96, 165, 250, 0.5);"></div></div>
                 </div>
                 <div class="stat-item-wrap">
-                    <div class="stat-row-inner"><span style="color: #a78bfa;">50</span><span id="res-50">0</span></div>
+                    <div class="stat-row-inner"><span id="lbl-res-50" style="color: #a78bfa;">50</span><span id="res-50">0</span></div>
                     <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-50" style="background: #a78bfa; box-shadow: 0 0 10px rgba(167, 139, 250, 0.5);"></div></div>
                 </div>
                 <div class="stat-item-wrap">
-                    <div class="stat-row-inner"><span style="color: #ef4444;">MISS</span><span id="res-miss">0</span></div>
+                    <div class="stat-row-inner"><span id="lbl-res-miss" style="color: #ef4444;">MISS</span><span id="res-miss">0</span></div>
                     <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-miss" style="background: #ef4444; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);"></div></div>
                 </div>
             </div>
@@ -117,6 +125,9 @@
     </div>
 
     <script src="js/common.js"></script>
+    <script src="js/beatmap.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/standard-engine.js"></script>
     <script src="js/game.js"></script>
 </body>
 </html>

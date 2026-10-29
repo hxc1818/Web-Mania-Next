@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="css/index.css">
 </head>
 <body>
-    <div class="mode-switcher">
+    <div class="mode-switcher" style="display: none;">
         <a class="mode-tab active" href="index.html">Single Player</a>
         <a class="mode-tab" href="multiplayer.html">Multiplayer</a>
     </div>
@@ -49,11 +49,16 @@
         <div class="select-left">
             <div class="map-stats" id="map-stats">
                 <div class="stat-item">BPM <span id="stat-bpm">0</span></div>
+                <div class="stat-item std-stat" style="display:none;">CS <span id="stat-cs">0</span></div>
+                <div class="stat-item std-stat" style="display:none;">AR <span id="stat-ar">0</span></div>
                 <div class="stat-item">OD <span id="stat-od">0</span></div>
                 <div class="stat-item">HP <span id="stat-hp">0</span></div>
-                <div class="stat-item">Notes <span id="stat-notes">0</span></div>
-                <div class="stat-item">Holds <span id="stat-holds">0</span></div>
-                <div class="stat-item">Keys <span id="stat-keys" style="color:#fbbf24;">4K</span></div>
+                <div class="stat-item mania-stat">Notes <span id="stat-notes">0</span></div>
+                <div class="stat-item mania-stat">Holds <span id="stat-holds">0</span></div>
+                <div class="stat-item mania-stat">Keys <span id="stat-keys" style="color:#fbbf24;">4K</span></div>
+                <div class="stat-item std-stat" style="display:none;">Circles <span id="stat-circles">0</span></div>
+                <div class="stat-item std-stat" style="display:none;">Sliders <span id="stat-sliders">0</span></div>
+                <div class="stat-item std-stat" style="display:none;">Spinners <span id="stat-spinners">0</span></div>
             </div>
 
             <div class="info-container">
@@ -135,7 +140,11 @@
                 <div id="slider-bgDim" class="osu-slider-placeholder"></div>
                 <div id="slider-scrollSpeed" class="osu-slider-placeholder"></div>
                 <div id="slider-trackScale" class="osu-slider-placeholder"></div>
+                <div id="slider-cursorSize" class="osu-slider-placeholder"></div>
                 
+                <div id="toggle-cursorTrail" class="osu-toggle-placeholder"></div>
+                <div id="toggle-snakingSliders" class="osu-toggle-placeholder"></div>
+                <div id="toggle-hide300" class="osu-toggle-placeholder"></div>
                 <div id="toggle-hitErrorMeter" class="osu-toggle-placeholder"></div>
                 <div id="toggle-noStoryboard" class="osu-toggle-placeholder"></div>
             </section>
@@ -160,7 +169,7 @@
             </section>
 
             <!-- 图像 -->
-            <section class="set-sec">
+            <section class="set-sec" style="margin-bottom: 80px;">
                 <h2 data-i18n="cat_gfx">图像</h2>
                 <div id="toggle-autoKiosk" class="osu-toggle-placeholder"></div>
                 
@@ -175,8 +184,8 @@
                 <div id="toggle-hwAccel" class="osu-toggle-placeholder"></div>
             </section>
 
-            <!-- 在线 -->
-            <section class="set-sec" style="margin-bottom: 80px;">
+            <!-- 在线 (已隐藏多人模式) -->
+            <section class="set-sec" style="display: none; margin-bottom: 80px;">
                 <h2 data-i18n="cat_online">在线</h2>
                 <div class="set-row">
                     <label data-i18n="multi_id">多人游戏ID</label>
@@ -193,6 +202,23 @@
         <div class="cm-item" id="cm-delete" style="color: #fca5a5;">删除谱面</div>
     </div>
 
+    <!-- 全局拖拽 OSZ 导入遮罩 -->
+    <div id="drop-overlay" class="drop-overlay">
+        <div class="drop-overlay-box">
+            <svg class="drop-overlay-icon" viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <div class="drop-overlay-title" data-i18n="drop_osz_title">松开鼠标以自动解析并安装谱面</div>
+            <div class="drop-overlay-desc" data-i18n="drop_osz_desc">支持单个或多个 .osz 谱面包，将自动解压并加入曲库</div>
+        </div>
+    </div>
+
+    <!-- 浮动通知容器 -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="js/beatmap.js"></script>
     <script src="js/common.js"></script>
     <script src="js/index.js"></script>
 </body>

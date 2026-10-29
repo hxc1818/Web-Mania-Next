@@ -1,6 +1,9 @@
 // /public/js/game.js
 const SCORES = { max: 320, p300: 300, p200: 200, p100: 100, p50: 50, miss: 0 };
 const HP_MOD = { max: 2, p300: 1, p200: 0.5, p100: -1, p50: -2, miss: -4 };
+const MANIA_TAU = Math.PI * 2;
+const maniaClamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const maniaEaseOut = t => 1 - (1 - t) * (1 - t);
 
 let KEY_MAP = {};
 let selectedMap = null;
@@ -87,13 +90,13 @@ window.onload = async () => {
         });
 
         socket.on('room_judge_event', data => {
-            if (specClientUid && specClientUid === data.uid && gameEngine) {
+            if (specClientUid && specClientUid === data.uid && gameEngine && gameEngine.queueSpectatorEvent) {
                 gameEngine.queueSpectatorEvent({ eventType: 'judge', ...data });
             }
         });
 
         socket.on('room_key_event', data => {
-            if (specClientUid && specClientUid === data.uid && gameEngine) {
+            if (specClientUid && specClientUid === data.uid && gameEngine && gameEngine.queueSpectatorEvent) {
                 gameEngine.queueSpectatorEvent({ eventType: 'key', action: data.type, lane: data.lane, time: data.time });
             }
         });
@@ -131,7 +134,7 @@ window.onload = async () => {
         });
 
         socket.on('force_game_ended', () => {
-            if (gameEngine) gameEngine.state.failed = true;
+            if (gameEngine && gameEngine.state) gameEngine.state.failed = true;
             quitGame();
         });
     }
@@ -140,10 +143,6 @@ window.onload = async () => {
         document.getElementById('game-screen').classList.add('active');
         document.body.style.background = 'transparent';
         document.getElementById('game-screen').style.background = 'transparent';
-        
-        document.getElementById('hud-combo').style.display = 'block';
-        document.querySelector('.hud-details').style.display = 'none'; 
-        document.getElementById('multi-lb').style.display = 'none';
         
         const replayBadge = document.getElementById('replay-badge');
         if (replayBadge) {
@@ -183,13 +182,14 @@ window.onload = async () => {
         const canvas = document.getElementById('game-canvas');
         if (canvas) {
             canvas.addEventListener('touchstart', (e) => {
-                if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
+                if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator || !gameEngine.onKeyDown) return;
                 e.preventDefault();
                 const rect = canvas.getBoundingClientRect();
+                const W = gameEngine.W || window.innerWidth;
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     const touch = e.changedTouches[i];
                     const x = touch.clientX - rect.left;
-                    const offsetX = (canvas.width - gameEngine.trackWidth) / 2;
+                    const offsetX = (W - gameEngine.trackWidth) / 2;
                     if (x >= offsetX && x <= offsetX + gameEngine.trackWidth) {
                         const lane = Math.floor((x - offsetX) / gameEngine.laneWidth);
                         if(lane >= 0 && lane < gameEngine.laneCount) {
@@ -201,7 +201,7 @@ window.onload = async () => {
             }, {passive: false});
 
             canvas.addEventListener('touchend', (e) => {
-                if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator) return;
+                if(!gameEngine || !gameEngine.isRunning || gameEngine.isPaused || isReplayMode || gameEngine.isSpectator || !gameEngine.onKeyUp) return;
                 e.preventDefault();
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     const touch = e.changedTouches[i];
@@ -215,7 +215,7 @@ window.onload = async () => {
 };
 
 function updateSpecClientHUD(data) {
-    if(data.failed && gameEngine && !gameEngine.state.failed) {
+    if(data.failed && gameEngine && gameEngine.state && !gameEngine.state.failed) {
         gameEngine.state.failed = true;
         const canvas = document.getElementById('game-canvas');
         if (canvas) canvas.style.filter = 'grayscale(1)';
@@ -307,7 +307,25 @@ class GameEngine {
         
         this.trackWidth = (this.laneCount * baseLaneWidth) * (userSettings.trackScale || 1.0);
         this.laneWidth = this.trackWidth / this.laneCount;
-        this.hitLineY = this.canvas.height - 120;
+        
+        this._resize = this._resize.bind(this);
+        this._resize();
+        window.addEventListener('resize', this._resize);
+
+        this._onCanvasPointerDown = (e) => {
+            if (this.isPaused || this.state.failed) return;
+            const uiScale = userSettings.uiScale || 1.0;
+            const u = Math.max(0.6, this.H / 900) * uiScale;
+            const now = this.getTime();
+            const cx = document.pointerLockElement ? (window.innerWidth / 2) : e.clientX;
+            const cy = document.pointerLockElement ? (window.innerHeight / 2) : e.clientY;
+            if (e.button === 0 && now < this.firstNoteTime - 2500 &&
+                cx >= this.W - 200 * u && cx <= this.W - 20 * u &&
+                cy >= this.H - 110 * u && cy <= this.H - 60 * u) {
+                this.skip();
+            }
+        };
+        this.canvas.addEventListener('pointerdown', this._onCanvasPointerDown);
         
         this.laneColors = userSettings.laneColors[this.laneCount] || [];
 
@@ -317,6 +335,9 @@ class GameEngine {
         this.audioSource = null;
         this.startTime = 0;
         this.fallbackStartTime = 0;
+        this.audioOffsetSec = 0;
+        this.failTime = 0;
+        this.failedAtTime = 0;
 
         this.nextSoundNoteIndex = 0;
         this.recordedEvents = []; 
@@ -336,10 +357,38 @@ class GameEngine {
             if (t > maxTime) maxTime = t;
         });
         this.state.totalBasePossible = totalJudgements * SCORES.max;
+        this.firstNoteTime = this.notes.length > 0 ? this.notes[0].time : 0;
         this.lastNoteTime = maxTime;
         this.totalLengthMs = maxTime;
-        this.drawStartIndex = 0;
-        this.judgeStartIndex = 0;
+        this.holdingNotes = new Array(this.laneCount).fill(null);
+        this.drawTimeStartIndex = 0;
+        this.headJudgeStartIndex = 0;
+        this.missJudgeStartIndex = 0;
+        this.cachedUR = 0;
+
+        // Pre-synthesize default hitsound buffer once to avoid runtime WebAudio oscillator/gain creation
+        this.defaultHitSoundBuffer = null;
+        if (window.AudioEngine && this.audioCtx) {
+            try {
+                const tempEngine = new window.AudioEngine(this.audioCtx);
+                this.defaultHitSoundBuffer = tempEngine.defaults['normal-hitnormal'];
+            } catch(e) {}
+        }
+        if (!this.defaultHitSoundBuffer && this.audioCtx) {
+            try {
+                const sr = this.audioCtx.sampleRate;
+                const len = Math.max(1, Math.floor(0.06 * sr));
+                const buf = this.audioCtx.createBuffer(1, len, sr);
+                const d = buf.getChannelData(0);
+                for (let i = 0; i < len; i++) {
+                    const t = i / sr;
+                    d[i] = Math.sin(2 * Math.PI * 1400 * t) * Math.exp(-t * 60) * 0.6;
+                }
+                this.defaultHitSoundBuffer = buf;
+            } catch(e) {}
+        }
+
+        this.loop = this.loop.bind(this);
 
         this.hudScore = document.getElementById('hud-score');
         this.hudAcc = document.getElementById('hud-acc');
@@ -350,34 +399,11 @@ class GameEngine {
 
         this.lastMultiSend = 0;
 
-        if (this.hudScore) this.hudScore.innerText = '0000000';
-        if (this.hudAcc) this.hudAcc.innerText = '100.00%';
-        if (this.hudPP) this.hudPP.innerText = '0';
-        if (this.hudUR) this.hudUR.innerText = '0.00';
-        if (this.hudRank) this.hudRank.innerText = '';
-        const hudCombo = document.getElementById('hud-combo');
-        if (hudCombo) {
-            hudCombo.style.display = 'none';
-            hudCombo.innerText = '0x';
-        }
         if (this.canvas) this.canvas.style.filter = 'none';
-        if (this.progressBar) this.progressBar.style.width = '0%';
 
         this.lastFrameTime = performance.now();
         this.frameCount = 0;
         this.fpsUpdateTime = 0;
-
-        if (userSettings.uiScale) {
-            const gameHud = document.querySelector('.game-hud');
-            if (gameHud) {
-                gameHud.style.transform = `scale(${userSettings.uiScale})`;
-                gameHud.style.transformOrigin = 'top left';
-            }
-            if (this.hudRank) {
-                this.hudRank.style.transform = `scale(${userSettings.uiScale})`;
-                this.hudRank.style.transformOrigin = 'top right';
-            }
-        }
 
         try {
             this.masterGain = this.audioCtx.createGain();
@@ -435,43 +461,84 @@ class GameEngine {
         window.addEventListener('focus', this.onFocus);
     }
 
+    _resize() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = window.innerWidth, h = window.innerHeight;
+        this.canvas.width = Math.round(w * dpr);
+        this.canvas.height = Math.round(h * dpr);
+        this.canvas.style.width = w + 'px';
+        this.canvas.style.height = h + 'px';
+        this.dpr = dpr;
+        this.W = w;
+        this.H = h;
+        this.hitLineY = this.H - 120;
+    }
+
     queueSpectatorEvent(evt) {
         this.spectatorEvents.push(evt);
         this.spectatorEvents.sort((a, b) => a.time - b.time);
     }
 
-    start() {
+    _startAudioAt(offsetSec = 0) {
+        if (this.audioSource) {
+            try { this.audioSource.stop(); this.audioSource.disconnect(); } catch (e) {}
+        }
         this.audioSource = this.audioCtx.createBufferSource();
         this.audioSource.buffer = this.audioBuffer;
         if (this.musicGain) this.audioSource.connect(this.musicGain);
         else this.audioSource.connect(this.audioCtx.destination);
-        
-        const delaySeconds = this.spectatorDelay / 1000;
-        this.fallbackStartTime = performance.now() + this.spectatorDelay;
-        
+
+        const delaySeconds = offsetSec === 0 ? (this.spectatorDelay / 1000) : 0;
+        this.audioOffsetSec = offsetSec;
+        this.fallbackStartTime = performance.now() + delaySeconds * 1000 - offsetSec * 1000;
+
         if (this.audioCtx.state === 'suspended') {
             this.audioCtx.resume().catch(e => console.warn("Audio autoplay prevented", e));
         }
 
-        this.startTime = this.audioCtx.currentTime + delaySeconds; 
-        this.audioSource.start(this.startTime, 0);
-        this.isRunning = true;
-        this.isPaused = false;
+        this.startTime = this.audioCtx.currentTime + delaySeconds - offsetSec;
+        this.audioSource.start(this.audioCtx.currentTime + delaySeconds, Math.max(0, offsetSec));
+
+        // Advance nextSoundNoteIndex past skipped time
+        const targetMs = offsetSec * 1000;
+        while (this.nextSoundNoteIndex < this.notes.length && this.notes[this.nextSoundNoteIndex].time < targetMs) {
+            this.notes[this.nextSoundNoteIndex].soundPlayed = true;
+            this.nextSoundNoteIndex++;
+        }
 
         if (window.videoPlayer) {
-            if (this.spectatorDelay > 0) {
-                setTimeout(() => { if (this.isRunning && !this.isPaused) window.videoPlayer.play(); }, this.spectatorDelay);
+            const decoderVideo = document.getElementById('decoder-video');
+            if (decoderVideo && decoderVideo.src && offsetSec > 0) {
+                try { decoderVideo.currentTime = offsetSec; } catch (e) {}
+            }
+            if (delaySeconds > 0) {
+                setTimeout(() => { if (this.isRunning && !this.isPaused) window.videoPlayer.play(); }, delaySeconds * 1000);
             } else {
                 window.videoPlayer.play();
             }
         }
+    }
 
-        requestAnimationFrame(this.loop.bind(this));
+    start() {
+        window.isStdGameplayActive = false;
+        this._startAudioAt(0);
+        this.isRunning = true;
+        this.isPaused = false;
+        requestAnimationFrame(this.loop);
+    }
+
+    skip() {
+        if (isMulti || this.isSpectator || this.isPaused || this.state.failed) return;
+        const now = this.getTime();
+        if (now < this.firstNoteTime - 2500) {
+            const targetSec = Math.max(0, (this.firstNoteTime - 1800) / 1000);
+            this._startAudioAt(targetSec);
+        }
     }
 
     pause() {
         if (isMulti) return; 
-        if (!this.isRunning || this.isPaused) return;
+        if (!this.isRunning || this.isPaused || this.state.failed) return;
         this.isPaused = true;
         if (this.audioCtx.state === 'running') this.audioCtx.suspend();
         
@@ -491,6 +558,10 @@ class GameEngine {
         this.isRunning = false;
         window.removeEventListener('blur', this.onBlur);
         window.removeEventListener('focus', this.onFocus);
+        window.removeEventListener('resize', this._resize);
+        if (this.canvas && this._onCanvasPointerDown) {
+            this.canvas.removeEventListener('pointerdown', this._onCanvasPointerDown);
+        }
 
         if (this.audioSource) { try { this.audioSource.stop(); this.audioSource.disconnect(); } catch(e) {} }
         if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(()=>{});
@@ -512,6 +583,7 @@ class GameEngine {
         }
 
         if(this.onEnd) this.onEnd({
+            mode: 3,
             failed: this.state.failed,
             acc: this.state.acc,
             score: this.state.scoreV2,
@@ -523,6 +595,9 @@ class GameEngine {
     }
 
     getTime() { 
+        if (this.state.failed && !isMulti && !this.isReplay && !this.isSpectator) {
+            return this.failedAtTime;
+        }
         let t = 0;
         if (this.audioCtx.state === 'running') {
             t = (this.audioCtx.currentTime - this.startTime) * 1000;
@@ -537,43 +612,67 @@ class GameEngine {
         try {
             const source = this.audioCtx.createBufferSource();
             source.buffer = buffer;
-            const gainNode = this.audioCtx.createGain();
-            if (gainNode && gainNode.gain) gainNode.gain.value = volumeScale;
-            source.connect(gainNode);
-            if (this.sfxGain) gainNode.connect(this.sfxGain);
-            else gainNode.connect(this.audioCtx.destination);
+            if (Math.abs(volumeScale - 1.0) < 0.01) {
+                source.connect(this.sfxGain || this.audioCtx.destination);
+            } else {
+                const gainNode = this.audioCtx.createGain();
+                gainNode.gain.value = volumeScale;
+                source.connect(gainNode);
+                gainNode.connect(this.sfxGain || this.audioCtx.destination);
+            }
             source.start(0);
         } catch(e) {}
     }
 
     playDefaultHitSound() {
-        if (!this.audioCtx) return;
-        try {
-            const osc = this.audioCtx.createOscillator();
-            const gain = this.audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(600, this.audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(100, this.audioCtx.currentTime + 0.05);
-            if (gain && gain.gain) {
-                gain.gain.setValueAtTime(0.4, this.audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.05);
-            }
-            osc.connect(gain);
-            if (this.sfxGain) gain.connect(this.sfxGain);
-            else gain.connect(this.audioCtx.destination);
-            osc.start(this.audioCtx.currentTime);
-            osc.stop(this.audioCtx.currentTime + 0.05);
-        } catch(e) {}
+        if (!this.audioCtx || !this.defaultHitSoundBuffer) return;
+        this.playHitSound(this.defaultHitSoundBuffer, 0.4);
+    }
+
+    _triggerFail() {
+        this.failedAtTime = this.getTime();
+        this.state.failed = true;
+        this.failTime = performance.now();
+        if (isMulti || this.isReplay || this.isSpectator) {
+            if (this.canvas) this.canvas.style.filter = 'grayscale(1)';
+            return;
+        }
+        if (window.videoPlayer) window.videoPlayer.pause();
+        if (this.audioSource && this.audioCtx) {
+            try {
+                const p = this.audioSource.playbackRate;
+                const now = this.audioCtx.currentTime;
+                p.setValueAtTime(1, now);
+                p.linearRampToValueAtTime(0.05, now + 1.6);
+                if (this.musicGain && this.musicGain.gain) {
+                    const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+                    this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
+                    this.musicGain.gain.linearRampToValueAtTime(0, now + 1.8);
+                    const g = this.musicGain;
+                    setTimeout(() => {
+                        try { this.audioSource.stop(); } catch (e) {}
+                        g.gain.cancelScheduledValues(0);
+                        g.gain.value = muVol;
+                    }, 1900);
+                }
+            } catch (e) {}
+        }
+        setTimeout(() => {
+            if (!this.state.failed) return;
+            const failScreen = document.getElementById('fail-screen');
+            if (failScreen) failScreen.classList.add('active');
+        }, 650);
     }
 
     addJudge(type, diff = 0, lane = -1, isTail = false) {
-        if(this.state.failed && type === 'miss') return; 
+        if(this.state.failed) return; 
         
         this.state.stats[type]++;
         if (type !== 'miss') {
-            this.state.hitErrors.push({ diff: diff, time: this.getTime() });
-            if (this.state.hitErrors.length > 50) this.state.hitErrors.shift();
+            this.state.hitErrors.push({ diff: diff, time: this.getTime(), type: type });
+            if (this.state.hitErrors.length > 60) this.state.hitErrors.shift();
             this.state.allHitErrors.push(diff);
+            this.cachedUR = this.calculateUR();
         }
 
         if (type === 'miss') this.state.combo = 0;
@@ -582,11 +681,8 @@ class GameEngine {
         this.state.hp = Math.min(100, Math.max(0, this.state.hp + HP_MOD[type]));
         
         if (this.state.hp <= 0 && !this.state.failed) {
-            this.state.failed = true;
-            if (this.canvas) this.canvas.style.filter = 'grayscale(1)';
-            if (!isMulti && !this.isReplay && !this.isSpectator) {
-                this.endGame(); return; 
-            }
+            this._triggerFail();
+            if (!isMulti && !this.isReplay && !this.isSpectator) return;
         }
 
         this.addEffect(type);
@@ -628,8 +724,6 @@ class GameEngine {
         let accMultiplier = Math.pow(this.state.acc / 100, 2);
         let finalPP = baseStrain * lengthBonus * scoreMultiplier * accMultiplier * 0.8;
         this.state.currentPP = Math.floor(finalPP);
-
-        this.updateHUD();
     }
 
     applyRemoteJudge(data) {
@@ -642,18 +736,20 @@ class GameEngine {
         this.state.stats = data.stats;
 
         if (data.judgeType !== 'miss') {
-            this.state.hitErrors.push({ diff: data.diff, time: this.getTime() });
-            if (this.state.hitErrors.length > 50) this.state.hitErrors.shift();
+            this.state.hitErrors.push({ diff: data.diff, time: this.getTime(), type: data.judgeType });
+            if (this.state.hitErrors.length > 60) this.state.hitErrors.shift();
+            this.cachedUR = this.calculateUR();
         }
 
         this.addEffect(data.judgeType);
-        this.updateHUD();
 
         if (data.lane >= 0) {
             let target = null, minDiff = Infinity;
-            for (let i = 0; i < this.notes.length; i++) {
+            const startI = Math.max(0, this.headJudgeStartIndex - 20);
+            for (let i = startI; i < this.notes.length; i++) {
                 const note = this.notes[i];
                 if (note.column !== data.lane) continue;
+                if (note.time - data.time > 1000) break;
                 
                 if (!data.isTail && !note.headJudged) {
                     const d = Math.abs(note.time - data.time);
@@ -666,10 +762,14 @@ class GameEngine {
             if (target) {
                 if (!data.isTail) {
                     target.headJudged = true;
-                    if (target.type === 'hold' && data.judgeType !== 'miss') target.isHolding = true;
+                    if (target.type === 'hold' && data.judgeType !== 'miss') {
+                        target.isHolding = true;
+                        this.holdingNotes[data.lane] = target;
+                    }
                 } else {
                     target.tailJudged = true;
                     target.isHolding = false;
+                    this.holdingNotes[data.lane] = null;
                 }
             }
         }
@@ -684,30 +784,24 @@ class GameEngine {
     }
 
     updateHUD() {
+        // Only update DOM on demand (e.g. pause/gameover) to prevent layout thrashing during 240+ FPS gameplay
         if (this.hudScore) this.hudScore.innerText = this.state.scoreV2.toString().padStart(7, '0');
         if (this.hudAcc) this.hudAcc.innerText = this.state.acc.toFixed(2) + '%';
         if (this.hudPP) this.hudPP.innerText = this.state.currentPP;
-        if (this.hudUR) this.hudUR.innerText = this.calculateUR().toFixed(2);
-        
-        const hudCombo = document.getElementById('hud-combo');
-        if (hudCombo) hudCombo.innerText = this.state.combo + 'x';
-        
-        if (!isMulti && !this.isReplay && this.leaderboard.length > 0 && this.state.scoreV2 > 0) {
-            let rank = 1; for (let s of this.leaderboard) { if (this.state.scoreV2 < s._realScore) rank++; }
-            if (this.hudRank) this.hudRank.innerText = '#' + rank;
-        } else {
-            if (this.hudRank) this.hudRank.innerText = '';
-        }
+        if (this.hudUR) this.hudUR.innerText = (this.cachedUR || 0).toFixed(2);
     }
 
     addEffect(type) {
-        const colors = { max: '#ffffff', p300: '#fbbf24', p200: '#34d399', p100: '#60a5fa', p50: '#a78bfa', miss: '#ef4444' };
+        if (userSettings && userSettings.hide300 === true && (type === 'max' || type === 'p300')) {
+            return;
+        }
+        const colors = { max: '#8ef', p300: '#8cf', p200: '#7f7', p100: '#7f7', p50: '#fc6', miss: '#f44' };
         const texts = { max: 'MAX', p300: '300', p200: '200', p100: '100', p50: '50', miss: 'MISS' };
-        this.state.effect = { text: texts[type], color: colors[type], life: 1, scale: 0.5, type: type };
+        this.state.effect = { text: texts[type], color: colors[type], startTime: this.getTime(), type: type };
     }
 
     onKeyDown(lane, forcedTime = null) {
-        if (!this.isRunning || this.isPaused || lane >= this.laneCount) return;
+        if (!this.isRunning || this.isPaused || this.state.failed || lane >= this.laneCount) return;
         
         this.keys[lane] = true;
         const now = forcedTime !== null ? forcedTime : this.getTime();
@@ -720,8 +814,12 @@ class GameEngine {
             this.recordedEvents.push({ type: 'down', lane, time: now });
         }
 
+        while (this.headJudgeStartIndex < this.notes.length && this.notes[this.headJudgeStartIndex].headJudged) {
+            this.headJudgeStartIndex++;
+        }
+
         let target = null, minDiff = Infinity;
-        for (let i = 0; i < this.notes.length; i++) {
+        for (let i = this.headJudgeStartIndex; i < this.notes.length; i++) {
             const note = this.notes[i];
             if (note.column !== lane || note.headJudged) continue;
             
@@ -754,10 +852,12 @@ class GameEngine {
             if (target.type === 'hold') {
                 if (j !== 'miss') {
                     target.isHolding = true;
+                    this.holdingNotes[lane] = target;
                 } else {
                     // 头部如果判定为Miss（如按太早），那么长按的尾巴直接连带作为Miss处理
                     target.tailJudged = true;
                     target.isHolding = false;
+                    this.holdingNotes[lane] = null;
                     this.addJudge('miss', diff, lane, true); 
                 }
             }
@@ -765,7 +865,7 @@ class GameEngine {
     }
 
     onKeyUp(lane, forcedTime = null) {
-        if (!this.isRunning || this.isPaused || lane >= this.laneCount || this.isSpectator) return;
+        if (!this.isRunning || this.isPaused || this.state.failed || lane >= this.laneCount || this.isSpectator) return;
 
         this.keys[lane] = false;
         const now = forcedTime !== null ? forcedTime : this.getTime();
@@ -778,22 +878,24 @@ class GameEngine {
             this.recordedEvents.push({ type: 'up', lane, time: now });
         }
 
-        for (let i = 0; i < this.notes.length; i++) {
-            const note = this.notes[i];
-            if (note.column === lane && note.type === 'hold' && note.isHolding && !note.tailJudged) {
-                note.isHolding = false; note.tailJudged = true;
-                const diff = now - note.endTime;
-                if (diff < -this.judge.p50) this.addJudge('miss', diff, lane, true);
-                else {
-                    const absDiff = Math.abs(diff); let j = 'miss';
-                    if (absDiff <= this.judge.max) j = 'max'; 
-                    else if (absDiff <= this.judge.p300) j = 'p300'; 
-                    else if (absDiff <= this.judge.p200) j = 'p200'; 
-                    else if (absDiff <= this.judge.p100) j = 'p100'; 
-                    else if (absDiff <= this.judge.p50) j = 'p50';
-                    this.addJudge(j, diff, lane, true); 
-                }
-                break;
+        // O(1) direct lookup of currently held note for this lane
+        const note = this.holdingNotes[lane];
+        if (note && note.type === 'hold' && note.isHolding && !note.tailJudged) {
+            this.holdingNotes[lane] = null;
+            note.isHolding = false;
+            note.tailJudged = true;
+            const diff = now - note.endTime;
+            if (diff < -this.judge.p50) {
+                this.addJudge('miss', diff, lane, true);
+            } else {
+                const absDiff = Math.abs(diff);
+                let j = 'miss';
+                if (absDiff <= this.judge.max) j = 'max'; 
+                else if (absDiff <= this.judge.p300) j = 'p300'; 
+                else if (absDiff <= this.judge.p200) j = 'p200'; 
+                else if (absDiff <= this.judge.p100) j = 'p100'; 
+                else if (absDiff <= this.judge.p50) j = 'p50';
+                this.addJudge(j, diff, lane, true); 
             }
         }
     }
@@ -806,7 +908,7 @@ class GameEngine {
             const targets = { 'vsync': 60, '2x': 120, '4x': 240, '8x': 480 };
             const targetFps = targets[userSettings.fpsLimit] || 60;
             if (hrTime - this.lastFrameTime < (1000 / targetFps) - 1.5) {
-                requestAnimationFrame(this.loop.bind(this));
+                requestAnimationFrame(this.loop);
                 return;
             }
         }
@@ -825,11 +927,10 @@ class GameEngine {
 
         const now = this.getTime();
         
-        if (this.totalLengthMs > 0 && this.progressBar) {
-            let prog = (now / this.totalLengthMs) * 100;
-            if (prog > 100) prog = 100;
-            if (prog < 0) prog = 0;
-            this.progressBar.style.width = prog + '%';
+        if (this.state.failed && !isMulti && !this.isReplay && !this.isSpectator) {
+            this.draw(now);
+            requestAnimationFrame(this.loop);
+            return;
         }
 
         if (isMulti && socket && !this.isSpectator && !this.isReplay && now - this.lastMultiSend > 100) {
@@ -865,10 +966,10 @@ class GameEngine {
                 if (!note.soundPlayed) {
                     note.soundPlayed = true;
                     if (note.samples && note.samples.length > 0) {
-                        note.samples.forEach(s => {
+                        for (let s of note.samples) {
                             const buffer = this.hitSounds[s.filename];
                             if (buffer) this.playHitSound(buffer, s.volume / 100);
-                        });
+                        }
                     } else {
                         this.playDefaultHitSound();
                     }
@@ -880,16 +981,23 @@ class GameEngine {
         const missThreshold = this.isReplay ? this.judge.p50 + 400 : this.judge.p50;
 
         if (!this.isSpectator) {
-            while (this.judgeStartIndex < this.notes.length) {
-                const n = this.notes[this.judgeStartIndex];
-                if (n.type === 'hold' ? n.tailJudged : n.headJudged) {
-                    this.judgeStartIndex++;
-                } else {
-                    break;
+            // 1. Check completed hold notes in O(laneCount)
+            for (let lane = 0; lane < this.laneCount; lane++) {
+                const note = this.holdingNotes[lane];
+                if (note && note.type === 'hold' && note.headJudged && note.isHolding && now > note.endTime && !note.tailJudged) {
+                    note.tailJudged = true;
+                    note.isHolding = false;
+                    this.holdingNotes[lane] = null;
+                    this.addJudge('max', 0, note.column, true);
                 }
             }
 
-            for (let i = this.judgeStartIndex; i < this.notes.length; i++) {
+            // 2. Advance missJudgeStartIndex as heads are judged
+            while (this.missJudgeStartIndex < this.notes.length && this.notes[this.missJudgeStartIndex].headJudged) {
+                this.missJudgeStartIndex++;
+            }
+
+            for (let i = this.missJudgeStartIndex; i < this.notes.length; i++) {
                 const note = this.notes[i];
                 if (note.time - now > missThreshold) break;
                 
@@ -900,34 +1008,38 @@ class GameEngine {
                     if (note.type === 'hold') {
                         // 头部没按导致直接错过，那么尾部肯定也算作漏掉了（连带Miss惩罚）
                         note.tailJudged = true; 
-                        note.isHolding = false;
+                        note.isHolding = false; 
+                        if (this.holdingNotes[note.column] === note) this.holdingNotes[note.column] = null;
                         this.addJudge('miss', missThreshold, note.column, true);
                     }
-                }
-                
-                // 长按成功一直保持到了结束时间（完美释放）
-                if (note.type === 'hold' && note.headJudged && note.isHolding && now > note.endTime && !note.tailJudged) {
-                    note.tailJudged = true; 
-                    note.isHolding = false; 
-                    this.addJudge('max', 0, note.column, true);
                 }
             }
         }
 
         this.draw(now);
-        requestAnimationFrame(this.loop.bind(this));
+        requestAnimationFrame(this.loop);
     }
 
     draw(now) {
-        const ctx = this.ctx, canvas = this.canvas;
-        const offsetX = (canvas.width - this.trackWidth) / 2;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const ctx = this.ctx;
+        const W = this.W, H = this.H, dpr = this.dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const offsetX = (W - this.trackWidth) / 2;
+        ctx.clearRect(0, 0, W, H);
         ctx.fillStyle = 'rgba(10,10,15,0.85)';
-        ctx.fillRect(offsetX, 0, this.trackWidth, canvas.height);
+        ctx.fillRect(offsetX, 0, this.trackWidth, H);
+
+        // Track side borders
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(offsetX, 0); ctx.lineTo(offsetX, H);
+        ctx.moveTo(offsetX + this.trackWidth, 0); ctx.lineTo(offsetX + this.trackWidth, H);
+        ctx.stroke();
 
         ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
         for (let i = 1; i < this.laneCount; i++) {
-            ctx.beginPath(); ctx.moveTo(offsetX + i * this.laneWidth, 0); ctx.lineTo(offsetX + i * this.laneWidth, canvas.height); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(offsetX + i * this.laneWidth, 0); ctx.lineTo(offsetX + i * this.laneWidth, H); ctx.stroke();
         }
 
         ctx.fillStyle = '#60a5fa'; ctx.fillRect(offsetX, this.hitLineY, this.trackWidth, 4);
@@ -936,34 +1048,29 @@ class GameEngine {
             if (this.keys[i]) { 
                 ctx.fillStyle = this.laneColors[i]; 
                 ctx.globalAlpha = 0.2;
-                ctx.fillRect(offsetX + i * this.laneWidth, this.hitLineY, this.laneWidth, canvas.height - this.hitLineY); 
+                ctx.fillRect(offsetX + i * this.laneWidth, this.hitLineY, this.laneWidth, H - this.hitLineY); 
                 ctx.globalAlpha = 1.0;
             }
         }
 
-        while (this.drawStartIndex < this.notes.length) {
-            const n = this.notes[this.drawStartIndex];
-            if (n.type === 'hold' ? n.tailJudged : n.headJudged) {
-                this.drawStartIndex++;
-            } else {
-                break;
-            }
+        while (this.drawTimeStartIndex < this.notes.length && this.notes[this.drawTimeStartIndex].time < now - 300) {
+            this.drawTimeStartIndex++;
         }
 
         const maxFutureTime = ((this.hitLineY + 60) / this.scrollSpeed) * 1000;
-        let endIdx = this.drawStartIndex;
+        let endIdx = this.drawTimeStartIndex;
         while (endIdx < this.notes.length && (this.notes[endIdx].time - now) < maxFutureTime) {
             endIdx++;
         }
 
-        for (let i = endIdx - 1; i >= this.drawStartIndex; i--) {
+        for (let i = endIdx - 1; i >= this.drawTimeStartIndex; i--) {
             const note = this.notes[i]; const color = this.laneColors[note.column]; const x = offsetX + note.column * this.laneWidth;
             if (note.type === 'hold') {
                 if (note.tailJudged) continue;
                 let startY = this.hitLineY - ((note.time - now) / 1000) * this.scrollSpeed;
                 let endY = this.hitLineY - ((note.endTime - now) / 1000) * this.scrollSpeed;
                 if (note.isHolding) startY = this.hitLineY;
-                if (startY > 0 && endY < canvas.height) {
+                if (startY > 0 && endY < H) {
                     ctx.globalAlpha = 0.5; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = 1.0;
                     if (!note.headJudged) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 2, startY - 15, this.laneWidth - 4, 15); }
                     ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, 15);
@@ -971,48 +1078,177 @@ class GameEngine {
             } else {
                 if (note.headJudged) continue;
                 const y = this.hitLineY - ((note.time - now) / 1000) * this.scrollSpeed;
-                if (y > -20 && y < canvas.height + 20) {
+                if (y > -20 && y < H + 20) {
                     ctx.fillStyle = color; ctx.fillRect(x + 2, y - 15, this.laneWidth - 4, 15);
                     ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 8, y - 10, this.laneWidth - 16, 5);
                 }
             }
         }
 
-        ctx.textAlign = 'center';
-        
-        if (this.state.combo > 5) {
-            ctx.font = '800 50px Segoe UI'; ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillText(this.state.combo, canvas.width / 2, canvas.height / 2 - 40);
-            ctx.font = '600 20px Segoe UI'; ctx.fillText('COMBO', canvas.width / 2, canvas.height / 2 - 10);
+        // Also draw any actively held notes whose start time was before drawTimeStartIndex
+        const minVisibleTime = this.drawTimeStartIndex < this.notes.length ? this.notes[this.drawTimeStartIndex].time : now - 300;
+        for (let lane = 0; lane < this.laneCount; lane++) {
+            const note = this.holdingNotes[lane];
+            if (note && note.type === 'hold' && !note.tailJudged && note.time < minVisibleTime) {
+                const color = this.laneColors[note.column];
+                const x = offsetX + note.column * this.laneWidth;
+                let startY = this.hitLineY;
+                let endY = this.hitLineY - ((note.endTime - now) / 1000) * this.scrollSpeed;
+                if (startY > 0 && endY < H) {
+                    ctx.globalAlpha = 0.5; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = 1.0;
+                    ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, 15);
+                }
+            }
         }
 
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Combo (std font & dark stroke outline at mania's track-center position)
+        if (this.state.combo > 5) {
+            ctx.font = 'bold 50px "Segoe UI", Arial';
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+            ctx.strokeText(this.state.combo, W / 2, H / 2 - 42);
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.fillText(this.state.combo, W / 2, H / 2 - 42);
+
+            ctx.font = 'bold 16px "Segoe UI", Arial';
+            ctx.lineWidth = 3;
+            ctx.strokeText('COMBO', W / 2, H / 2 - 8);
+            ctx.fillStyle = 'rgba(255,255,255,0.65)';
+            ctx.fillText('COMBO', W / 2, H / 2 - 8);
+        }
+
+        // Judgement text (std palette + easeOut pop-in scale + dark outline at mania's position)
         if (this.state.effect) {
             const ef = this.state.effect;
-            ctx.font = `800 ${30 * ef.scale}px Segoe UI`; ctx.fillStyle = ef.color; ctx.globalAlpha = ef.life;
-            if(ef.type === 'max') { ctx.shadowBlur = 10; ctx.shadowColor = `hsl(${now % 360}, 100%, 50%)`; ctx.fillStyle = '#ffffff'; } else ctx.shadowBlur = 0;
-            ctx.fillText(ef.text, canvas.width / 2, this.hitLineY - 100 - (1 - ef.life) * 30);
-            ctx.globalAlpha = 1.0; ctx.shadowBlur = 0; ef.scale += 0.05; ef.life -= 0.04; if (ef.life <= 0) this.state.effect = null;
+            const elapsed = Math.max(0, now - ef.startTime);
+            const duration = 500;
+            if (elapsed >= duration) {
+                this.state.effect = null;
+            } else {
+                const k = elapsed / duration;
+                const scale = 1 + 0.22 * maniaEaseOut(Math.min(1, k * 4));
+                const alpha = k < 0.65 ? 1 : 1 - (k - 0.65) / 0.35;
+                const jy = this.hitLineY - 110 + (ef.type === 'miss' ? 20 * k : 0);
+                ctx.save();
+                ctx.translate(W / 2, jy);
+                ctx.scale(scale, scale);
+                ctx.globalAlpha = maniaClamp(alpha, 0, 1);
+                ctx.font = 'bold 32px "Segoe UI", Arial';
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+                ctx.strokeText(ef.text, 0, 0);
+                ctx.fillStyle = ef.color;
+                ctx.fillText(ef.text, 0, 0);
+                ctx.restore();
+            }
         }
 
+        ctx.textBaseline = 'alphabetic';
+
+        // Hit Error Meter (std 3-color zones + colored fading ticks + white moving-average triangle at mania's position)
         if (userSettings.hitErrorMeter !== false) {
-            const meterY = this.hitLineY + 60; const xC = canvas.width / 2; const scale = 1.5; 
-            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(xC - (150 * scale), meterY - 5, 300 * scale, 10);
-            ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(xC - 1, meterY - 8, 2, 16); 
-            ctx.fillStyle = '#fbbf24'; ctx.fillRect(xC - (this.judge.p300 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p300 * scale), meterY - 5, 1, 10);
-            ctx.fillStyle = '#60a5fa'; ctx.fillRect(xC - (this.judge.p100 * scale), meterY - 5, 1, 10); ctx.fillRect(xC + (this.judge.p100 * scale), meterY - 5, 1, 10);
+            const ex = W / 2, ey = this.hitLineY + 60, scaleE = 1.5;
+            const w50 = this.judge.p50 * scaleE;
+            const w100 = this.judge.p100 * scaleE;
+            const w300 = this.judge.p300 * scaleE;
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = '#d9a74a'; ctx.fillRect(ex - w50, ey - 3, w50 * 2, 6);
+            ctx.fillStyle = '#57e313'; ctx.fillRect(ex - w100, ey - 3, w100 * 2, 6);
+            ctx.fillStyle = '#32bce7'; ctx.fillRect(ex - w300, ey - 3, w300 * 2, 6);
+            ctx.fillStyle = '#fff'; ctx.fillRect(ex - 1, ey - 12, 2, 24);
             for (let i = 0; i < this.state.hitErrors.length; i++) {
-                const err = this.state.hitErrors[i]; const age = now - err.time;
-                if (age > 3000) continue; 
-                let alpha = 1 - (age / 3000); let absErr = Math.abs(err.diff); let color = '#60a5fa';
-                if (absErr <= this.judge.max) color = '#ffffff'; else if (absErr <= this.judge.p300) color = '#fbbf24'; else if (absErr <= this.judge.p200) color = '#34d399'; else if (absErr <= this.judge.p100) color = '#60a5fa'; else color = '#a78bfa';
-                ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillRect(xC + (err.diff * scale) - 2, meterY - 8, 4, 16);
+                const err = this.state.hitErrors[i];
+                const age = now - err.time;
+                if (age > 6000 || age < 0) continue;
+                ctx.globalAlpha = maniaClamp(1 - age / 6000, 0, 1) * 0.9;
+                const absErr = Math.abs(err.diff);
+                ctx.fillStyle = absErr <= this.judge.p300 ? '#32bce7' : absErr <= this.judge.p100 ? '#57e313' : '#d9a74a';
+                ctx.fillRect(ex + err.diff * scaleE - 1.5, ey - 10, 3, 20);
             }
             ctx.globalAlpha = 1.0;
+            if (this.state.hitErrors.length > 0) {
+                const errs = this.state.hitErrors;
+                const len = errs.length;
+                const count = len > 20 ? 20 : len;
+                let sum = 0;
+                for (let j = len - count; j < len; j++) sum += errs[j].diff;
+                const avg = sum / count;
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.moveTo(ex + avg * scaleE, ey - 14);
+                ctx.lineTo(ex + avg * scaleE - 5, ey - 21);
+                ctx.lineTo(ex + avg * scaleE + 5, ey - 21);
+                ctx.fill();
+            }
         }
 
-        ctx.fillStyle = '#111'; ctx.fillRect(offsetX, 0, this.trackWidth, 10);
-        ctx.fillStyle = this.state.hp > 20 ? '#10b981' : '#ef4444'; ctx.fillRect(offsetX, 0, (this.state.hp / 100) * this.trackWidth, 10);
+        // Track-top HP Bar (std style: rgba(0,0,0,0.5) background, #ffffff fill, #ff4d4d when < 20%)
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(offsetX, 0, this.trackWidth, 12);
+        ctx.fillStyle = this.state.hp < 20 ? '#ff4d4d' : '#ffffff';
+        ctx.fillRect(offsetX, 0, (this.state.hp / 100) * this.trackWidth, 12);
 
-        const currentBreak = this.breaks.find(b => now >= b.startTime && now <= b.endTime);
+        // Unified Top-Right HUD (Score + ACC + Circular Progress Pie + PP/UR/Rank)
+        const uiScale = userSettings.uiScale || 1.0;
+        const u = Math.max(0.6, H / 900) * uiScale;
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'right';
+        ctx.font = `bold ${40 * u}px "Segoe UI", Consolas, monospace`;
+        ctx.fillText(String(Math.round(this.state.scoreV2)).padStart(8, '0'), W - 16 * u, 52 * u);
+        ctx.font = `bold ${24 * u}px "Segoe UI", Arial`;
+        ctx.fillText(this.state.acc.toFixed(2) + '%', W - 16 * u, 84 * u);
+
+        // Progress Pie
+        const prog = maniaClamp((now - this.firstNoteTime) / Math.max(1, this.lastNoteTime - this.firstNoteTime), 0, 1);
+        const pcx = W - 160 * u, pcy = 76 * u, pr = 11 * u;
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(pcx, pcy, pr, 0, MANIA_TAU); ctx.stroke();
+        ctx.fillStyle = now < this.firstNoteTime ? 'rgba(120,255,120,0.7)' : 'rgba(255,255,255,0.7)';
+        ctx.beginPath(); ctx.moveTo(pcx, pcy);
+        if (now < this.firstNoteTime) {
+            const k = maniaClamp((this.firstNoteTime - now) / Math.max(1, this.firstNoteTime), 0, 1);
+            ctx.arc(pcx, pcy, pr, -Math.PI / 2, -Math.PI / 2 + MANIA_TAU * k);
+        } else {
+            ctx.arc(pcx, pcy, pr, -Math.PI / 2, -Math.PI / 2 + MANIA_TAU * prog);
+        }
+        ctx.fill();
+
+        // PP & UR & Rank
+        if (!this.isSpectator) {
+            ctx.font = `bold ${15 * u}px "Segoe UI", Arial`;
+            ctx.fillStyle = 'rgba(255,255,255,0.75)';
+            ctx.fillText(`PP ${this.state.currentPP}   UR ${(this.cachedUR || 0).toFixed(2)}`, W - 16 * u, 110 * u);
+            if (!isMulti && !this.isReplay && this.leaderboard.length > 0 && this.state.scoreV2 > 0) {
+                let rank = 1;
+                for (let s of this.leaderboard) { if (this.state.scoreV2 < s._realScore) rank++; }
+                ctx.font = `bold ${26 * u}px "Segoe UI", Arial`;
+                ctx.fillStyle = '#fbbf24';
+                ctx.fillText('#' + rank, W - 16 * u, 140 * u);
+            }
+        }
+
+        // Intro Skip Button (std style bottom-right)
+        ctx.textAlign = 'center';
+        if (now < this.firstNoteTime - 2500 && !this.isPaused && !this.state.failed && !isMulti && !this.isSpectator) {
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(W - 200 * u, H - 110 * u, 180 * u, 50 * u);
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold ${22 * u}px "Segoe UI", Arial`;
+            ctx.fillText('SKIP ▶ (Space)', W - 110 * u, H - 77 * u);
+        }
+
+        let currentBreak = null;
+        for (let i = 0; i < this.breaks.length; i++) {
+            const b = this.breaks[i];
+            if (now >= b.startTime && now <= b.endTime) {
+                currentBreak = b;
+                break;
+            }
+        }
         
         if (currentBreak) {
             if (!this.inBreak) {
@@ -1020,17 +1256,17 @@ class GameEngine {
                 const bgEl = document.getElementById('game-bg');
                 const vidEl = document.getElementById('bg-video-canvas');
                 if (bgEl) bgEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
-                if (vidEl && vidEl.style.display !== 'none') vidEl.style.filter = `brightness(0.05) blur(${userSettings.bgBlur || 8}px)`;
+                if (vidEl && vidEl.style.display !== 'none') vidEl.style.filter = `brightness(0.05)`;
             }
             
             ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(0, 0, W, H);
             
             const progress = Math.min(1, Math.max(0, (now - currentBreak.startTime) / (currentBreak.endTime - currentBreak.startTime)));
-            const barMaxWidth = Math.min(600, canvas.width * 0.75);
+            const barMaxWidth = Math.min(600, W * 0.75);
             const barWidth = barMaxWidth * (1 - progress);
-            const barX = (canvas.width - barWidth) / 2;
-            const barY = canvas.height / 2;
+            const barX = (W - barWidth) / 2;
+            const barY = H / 2;
             
             ctx.fillStyle = '#3b82f6';
             ctx.fillRect(barX, barY, barWidth, 6);
@@ -1044,7 +1280,7 @@ class GameEngine {
             ctx.textAlign = 'center';
             ctx.shadowBlur = 15;
             ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.fillText(timeLeft, canvas.width / 2, barY - 30);
+            ctx.fillText(timeLeft, W / 2, barY - 30);
             ctx.shadowBlur = 0;
             
             const grade = getGrade(this.state.acc, this.state.failed);
@@ -1058,32 +1294,34 @@ class GameEngine {
             
             ctx.font = '600 24px Segoe UI';
             ctx.fillStyle = '#aaaaaa';
-            ctx.fillText(`ACC: ${this.state.acc.toFixed(2)}%`, canvas.width / 2, barY + 50);
+            ctx.fillText(`ACC: ${this.state.acc.toFixed(2)}%`, W / 2, barY + 50);
             
             ctx.font = 'italic 800 36px Segoe UI';
             ctx.fillStyle = gradeColor;
-            ctx.fillText(grade, canvas.width / 2, barY + 95);
+            ctx.fillText(grade, W / 2, barY + 95);
             
         } else {
             if (this.inBreak) {
                 this.inBreak = false;
-                let filterStr = `brightness(${(100 - (userSettings.bgDim !== undefined ? userSettings.bgDim : 80)) / 100})`;
-                if (userSettings.bgBlur > 0) filterStr += ` blur(${userSettings.bgBlur}px)`;
+                const dimVal = (100 - (userSettings.bgDim !== undefined ? userSettings.bgDim : 80)) / 100;
+                let bgFilterStr = `brightness(${dimVal})`;
+                if (userSettings.bgBlur > 0) bgFilterStr += ` blur(${userSettings.bgBlur}px)`;
+                const vidFilterStr = `brightness(${dimVal})`;
                 const bgEl = document.getElementById('game-bg');
                 const vidEl = document.getElementById('bg-video-canvas');
-                if (bgEl) bgEl.style.filter = filterStr;
-                if (vidEl) vidEl.style.filter = filterStr;
+                if (bgEl) bgEl.style.filter = bgFilterStr;
+                if (vidEl) vidEl.style.filter = vidFilterStr;
             }
         }
 
         if (typeof retryProgress !== 'undefined' && retryProgress > 0) {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(offsetX, canvas.height / 2 - 50, this.trackWidth, 100);
+            ctx.fillRect(offsetX, H / 2 - 50, this.trackWidth, 100);
 
             const barMaxWidth = this.trackWidth * 0.8;
             const barWidth = barMaxWidth * (retryProgress / 100);
             const barX = offsetX + (this.trackWidth - barMaxWidth) / 2;
-            const barY = canvas.height / 2 + 10;
+            const barY = H / 2 + 10;
             
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#3b82f6';
@@ -1105,12 +1343,12 @@ class GameEngine {
 
         if (typeof escProgress !== 'undefined' && escProgress > 0) {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(offsetX, canvas.height / 2 - 50, this.trackWidth, 100);
+            ctx.fillRect(offsetX, H / 2 - 50, this.trackWidth, 100);
 
             const barMaxWidth = this.trackWidth * 0.8;
             const barWidth = barMaxWidth * (escProgress / 100);
             const barX = offsetX + (this.trackWidth - barMaxWidth) / 2;
-            const barY = canvas.height / 2 + 10;
+            const barY = H / 2 + 10;
             
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#ef4444';
@@ -1129,6 +1367,12 @@ class GameEngine {
             ctx.fillText('返回房间...', offsetX + this.trackWidth / 2, barY - 15);
             ctx.shadowBlur = 0;
         }
+
+        if (this.state.failed && !isMulti && !this.isReplay && !this.isSpectator) {
+            const k = maniaClamp((performance.now() - this.failTime) / 800, 0, 1);
+            ctx.fillStyle = `rgba(80,0,0,${0.5 * k})`;
+            ctx.fillRect(0, 0, W, H);
+        }
     }
 }
 
@@ -1139,13 +1383,15 @@ async function initGame(isSpectating) {
         const gameBgEl = document.getElementById('game-bg');
         const videoCanvas = document.getElementById('bg-video-canvas');
 
-        let filterStr = `brightness(${(100 - (userSettings.bgDim !== undefined ? userSettings.bgDim : 80)) / 100})`;
-        if (userSettings.bgBlur > 0) filterStr += ` blur(${userSettings.bgBlur}px)`;
+        const dimVal = (100 - (userSettings.bgDim !== undefined ? userSettings.bgDim : 80)) / 100;
+        let bgFilterStr = `brightness(${dimVal})`;
+        if (userSettings.bgBlur > 0) bgFilterStr += ` blur(${userSettings.bgBlur}px)`;
+        const videoFilterStr = `brightness(${dimVal})`; // Never blur BGA video
 
         if (selectedMap.bgPath && gameBgEl) {
             const bgUrl = `${LOCAL_API_URL}/file?path=${encodeURIComponent(selectedMap.bgPath)}`;
             gameBgEl.style.backgroundImage = `url("${bgUrl}")`;
-            gameBgEl.style.filter = filterStr;
+            gameBgEl.style.filter = bgFilterStr;
         }
 
         if (!selectedMap.audioPath) {
@@ -1159,26 +1405,36 @@ async function initGame(isSpectating) {
         const osuText = await osuRes.text();
         if (initId !== currentInitId) return; 
         const parsed = parseOsuFile(osuText);
+        const isStdMode = (selectedMap.mode === 0) || (parsed.mode === 0);
+
+        let stdBeatmap = null;
+        if (isStdMode && window.OsuBeatmap) {
+            stdBeatmap = window.OsuBeatmap.parseBeatmap(osuText);
+        }
 
         KEY_MAP = {};
-        const currentCS = parsed.cs || selectedMap.cs || 4;
-        let currentBinds = userSettings.keyBinds[currentCS];
-        if (!currentBinds) currentBinds = [];
-        currentBinds.forEach((binds, laneIndex) => {
-            binds.forEach(key => {
-                if (key) KEY_MAP[key] = laneIndex;
+        if (!isStdMode) {
+            const currentCS = parsed.cs || selectedMap.cs || 4;
+            let currentBinds = userSettings.keyBinds[currentCS];
+            if (!currentBinds) currentBinds = [];
+            currentBinds.forEach((binds, laneIndex) => {
+                binds.forEach(key => {
+                    if (key) KEY_MAP[key] = laneIndex;
+                });
             });
-        });
+        }
 
-        if (parsed.videoPath && userSettings.noStoryboard !== true) {
-            const cleanVideoPath = parsed.videoPath.trim();
+        const videoRelPath = isStdMode ? (stdBeatmap && stdBeatmap.video ? stdBeatmap.video.filename : parsed.videoPath) : parsed.videoPath;
+
+        if (videoRelPath && userSettings.noStoryboard !== true) {
+            const cleanVideoPath = videoRelPath.trim();
             const fullVideoPath = selectedMap.dirPath + '/' + cleanVideoPath;
             const cachedVideo = sessionStorage.getItem('webmania_cached_video');
             
             if (gameBgEl) gameBgEl.style.display = 'none';
             if (videoCanvas) {
                 videoCanvas.style.display = 'block';
-                videoCanvas.style.filter = filterStr;
+                videoCanvas.style.filter = videoFilterStr;
             }
 
             if (window.videoPlayer) {
@@ -1298,6 +1554,46 @@ async function initGame(isSpectating) {
         if (initId !== currentInitId) return;
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
         if (initId !== currentInitId) return;
+
+        const canvas = document.getElementById('game-canvas');
+        if (gameEngine) gameEngine.quit();
+
+        if (isStdMode && stdBeatmap && window.OsuStdEngine && window.AudioEngine) {
+            const stdAudio = new window.AudioEngine(audioCtx);
+            const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
+            const bgVol = (userSettings.bgVol !== undefined ? userSettings.bgVol : 50) / 100;
+            const muVol = (userSettings.musicVol !== undefined ? userSettings.musicVol : 100) / 100;
+            const sfxVol = (userSettings.sfxVol !== undefined ? userSettings.sfxVol : 100) / 100;
+            stdAudio.setMaster(document.hasFocus() ? mVol : bgVol);
+            stdAudio.setMusic(muVol);
+            stdAudio.setEffect(sfxVol);
+            stdAudio.enableHitSounds = (userSettings.enableHitSounds !== false);
+
+            try {
+                const smpRes = await fetch(`${LOCAL_API_URL}/dir_samples?dirPath=${encodeURIComponent(selectedMap.dirPath)}&excludeAudio=${encodeURIComponent(selectedMap.audioPath || '')}`);
+                if (smpRes.ok) {
+                    const smpData = await smpRes.json();
+                    if (smpData && Array.isArray(smpData.files) && smpData.files.length > 0) {
+                        await stdAudio.loadMapSamples(selectedMap.dirPath, smpData.files, LOCAL_API_URL);
+                    }
+                }
+            } catch (e) {}
+            if (initId !== currentInitId) return;
+
+            gameEngine = new window.OsuStdEngine({
+                canvas,
+                audio: stdAudio,
+                beatmap: stdBeatmap,
+                musicBuffer: audioBuffer,
+                stars: selectedMap.stars || window.OsuBeatmap.estimateStars(stdBeatmap),
+                leaderboard: currentLeaderboard,
+                isReplay: isReplayMode,
+                replayEvents: isReplayMode && replayData && Array.isArray(replayData.events) ? [...replayData.events] : [],
+                onEnd: onGameEnd
+            });
+            gameEngine.start();
+            return;
+        }
         
         const uniqueSamples = new Set();
         parsed.notes.forEach(n => {
@@ -1317,10 +1613,7 @@ async function initGame(isSpectating) {
             } catch (e) {}
         });
         await Promise.all(fetchPromises);
-
-        const canvas = document.getElementById('game-canvas');
-
-        if (gameEngine) gameEngine.quit();
+        if (initId !== currentInitId) return;
 
         gameEngine = new GameEngine(
             canvas, parsed, audioBuffer, audioCtx, 
@@ -1338,7 +1631,7 @@ async function initGame(isSpectating) {
 
 function parseOsuFile(osuText) {
     const lines = osuText.split(/\r?\n/);
-    let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
+    let section = '', mode = 0, bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
     const notes = [];
     const samples = []; 
     const breaks = []; 
@@ -1348,7 +1641,10 @@ function parseOsuFile(osuText) {
         if (line.startsWith('[')) { section = line; continue; }
         if (!line) continue;
         
-        if (section === '[General]') { if (line.startsWith('PreviewTime:')) previewTime = parseInt(line.split(':')[1].trim()); } 
+        if (section === '[General]') {
+            if (line.startsWith('Mode:')) mode = parseInt(line.split(':')[1].trim());
+            if (line.startsWith('PreviewTime:')) previewTime = parseInt(line.split(':')[1].trim());
+        } 
         else if (section === '[Difficulty]') { 
             if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim()); 
             if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
@@ -1364,7 +1660,7 @@ function parseOsuFile(osuText) {
                 if (parts.length >= 3) {
                     breaks.push({ startTime: parseInt(parts[1]), endTime: parseInt(parts[2]) });
                 }
-            } else if (parts[0] === 'Sample') {
+            } else if (parts[0] === 'Sample' || parts[0] === '5') {
                 if (parts.length >= 4) {
                     const sTime = parseInt(parts[1]);
                     const sFilename = parts[3].replace(/"/g, '').trim();
@@ -1438,6 +1734,7 @@ function parseOsuFile(osuText) {
         bpm = Math.round(60000 / mainBL);
     }
     return { 
+        mode,
         notes: notes.sort((a,b) => a.time - b.time), 
         breaks: breaks.sort((a,b) => a.startTime - b.startTime),
         bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath 
@@ -1462,18 +1759,25 @@ function animateValue(obj, start, end, duration, formatStr = false) {
 }
 
 function onGameEnd(result) {
+    window.isStdGameplayActive = false;
+    const failScreen = document.getElementById('fail-screen');
+    if (failScreen) failScreen.classList.remove('active');
+
     if (window.videoPlayer) {
         if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
         window.videoPlayer = null;
     }
 
-    if (!isMulti && !isReplayMode && gameEngine && gameEngine.recordedEvents.length > 0) {
+    const isStd = (result.mode === 0) || (selectedMap && selectedMap.mode === 0);
+
+    if (!isMulti && !isReplayMode && !result.failed && gameEngine && gameEngine.recordedEvents && gameEngine.recordedEvents.length > 0) {
         const folderPath = localStorage.getItem('wm_folderPath');
         const scorePayload = {
             folderPath: folderPath,
             mapId: selectedMap.id,
             scoreData: {
                 player: localStorage.getItem('wm_username') || 'Unknown Player',
+                mode: isStd ? 0 : 3,
                 score: result.score,
                 combo: result.combo,
                 acc: result.acc,
@@ -1499,6 +1803,29 @@ function onGameEnd(result) {
     if (isReplayMode) {
         const resultTitle = document.querySelector('.result-title');
         if (resultTitle) resultTitle.innerText = "回放结束";
+    }
+
+    // Update judgement labels for std vs mania
+    const lblMax = document.getElementById('lbl-res-max');
+    const lbl300 = document.getElementById('lbl-res-300');
+    const lbl200 = document.getElementById('lbl-res-200');
+    const lbl100 = document.getElementById('lbl-res-100');
+    const lbl50 = document.getElementById('lbl-res-50');
+    const lblMiss = document.getElementById('lbl-res-miss');
+    if (isStd) {
+        if (lblMax) { lblMax.innerText = '激'; lblMax.style.color = '#8ef'; }
+        if (lbl300) { lbl300.innerText = '300'; lbl300.style.color = '#8cf'; }
+        if (lbl200) { lbl200.innerText = '喝'; lbl200.style.color = '#7f7'; }
+        if (lbl100) { lbl100.innerText = '100'; lbl100.style.color = '#7f7'; }
+        if (lbl50) { lbl50.innerText = '50'; lbl50.style.color = '#fc6'; }
+        if (lblMiss) { lblMiss.innerText = 'MISS'; lblMiss.style.color = '#f44'; }
+    } else {
+        if (lblMax) { lblMax.innerText = 'MAX'; lblMax.style.color = '#ffffff'; }
+        if (lbl300) { lbl300.innerText = '300'; lbl300.style.color = '#fbbf24'; }
+        if (lbl200) { lbl200.innerText = '200'; lbl200.style.color = '#34d399'; }
+        if (lbl100) { lbl100.innerText = '100'; lbl100.style.color = '#60a5fa'; }
+        if (lbl50) { lbl50.innerText = '50'; lbl50.style.color = '#a78bfa'; }
+        if (lblMiss) { lblMiss.innerText = 'MISS'; lblMiss.style.color = '#ef4444'; }
     }
 
     if (selectedMap && !specClientUid && role !== 'spectator') {
@@ -1627,12 +1954,18 @@ function resumeGame() {
             const pauseScreen = document.getElementById('pause-screen');
             if (pauseScreen) pauseScreen.classList.remove('active');
             if (gameEngine) {
-                gameEngine.isPaused = false;
-                if (gameEngine.audioCtx.state === 'suspended') gameEngine.audioCtx.resume();
-                if (window.videoPlayer) {
-                    if (typeof window.videoPlayer.play === 'function') window.videoPlayer.play();
+                if (typeof gameEngine.resumeFromCountdown === 'function') {
+                    gameEngine.resumeFromCountdown();
+                } else {
+                    gameEngine.isPaused = false;
+                    if (gameEngine.audioCtx && gameEngine.audioCtx.state === 'suspended') gameEngine.audioCtx.resume();
+                    if (window.videoPlayer && typeof window.videoPlayer.play === 'function') {
+                        window.videoPlayer.play();
+                    }
+                    if (typeof gameEngine.loop === 'function') {
+                        requestAnimationFrame(gameEngine.loop.bind(gameEngine));
+                    }
                 }
-                requestAnimationFrame(gameEngine.loop.bind(gameEngine));
             }
         }
     }, 1000);
@@ -1643,6 +1976,8 @@ function retryGame() {
     isResuming = false;
     const pauseScreen = document.getElementById('pause-screen');
     if (pauseScreen) pauseScreen.classList.remove('active'); 
+    const failScreen = document.getElementById('fail-screen');
+    if (failScreen) failScreen.classList.remove('active');
     
     if (window.videoPlayer) { 
         if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
@@ -1654,25 +1989,8 @@ function retryGame() {
         gameEngine = null; 
     }
     
-    const hudScore = document.getElementById('hud-score');
-    if (hudScore) hudScore.innerText = '0000000';
-    const hudAcc = document.getElementById('hud-acc');
-    if (hudAcc) hudAcc.innerText = '100.00%';
-    const hudPP = document.getElementById('hud-pp');
-    if (hudPP) hudPP.innerText = '0';
-    const hudUR = document.getElementById('hud-ur');
-    if (hudUR) hudUR.innerText = '0.00';
-    const hudRank = document.getElementById('hud-rank');
-    if (hudRank) hudRank.innerText = '';
-    const hudCombo = document.getElementById('hud-combo');
-    if (hudCombo) {
-        hudCombo.style.display = 'none';
-        hudCombo.innerText = '0x';
-    }
     const gameCanvas = document.getElementById('game-canvas');
     if (gameCanvas) gameCanvas.style.filter = 'none';
-    const progressBar = document.getElementById('song-progress-bar');
-    if (progressBar) progressBar.style.width = '0%';
 
     initGame(false); 
 }
@@ -1680,15 +1998,18 @@ function retryGame() {
 function quitGame() { 
     if(isResuming) clearInterval(resumeInterval);
     isResuming = false;
+    window.isStdGameplayActive = false;
     const pauseScreen = document.getElementById('pause-screen');
     if (pauseScreen) pauseScreen.classList.remove('active'); 
+    const failScreen = document.getElementById('fail-screen');
+    if (failScreen) failScreen.classList.remove('active');
     
     if (window.videoPlayer) { 
         if (typeof window.videoPlayer.destroy === 'function') window.videoPlayer.destroy();
         window.videoPlayer = null; 
     }
     
-    if (isMulti && socket && gameEngine && gameEngine.isRunning && !gameEngine.state.failed) {
+    if (isMulti && socket && gameEngine && gameEngine.isRunning && gameEngine.state && !gameEngine.state.failed) {
         socket.emit('multi_game_end', { 
             score: gameEngine.state.scoreV2 || 0, 
             combo: gameEngine.state.combo || 0, 
@@ -1722,6 +2043,11 @@ function quitGame() {
 window.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') {
         e.preventDefault();
+        const failScreen = document.getElementById('fail-screen');
+        if (failScreen && failScreen.classList.contains('active')) {
+            quitGame();
+            return;
+        }
         if (gameEngine && gameEngine.isRunning) {
             if (isMulti) {
                 if (!escHoldTimer) {
@@ -1757,6 +2083,14 @@ window.addEventListener('keydown', (e) => {
         }
     }
 
+    if (e.code === 'Space' && gameEngine && gameEngine.isRunning && !gameEngine.isPaused && typeof gameEngine.skip === 'function') {
+        if (gameEngine instanceof GameEngine && gameEngine.getTime() < gameEngine.firstNoteTime - 2500) {
+            e.preventDefault();
+            gameEngine.skip();
+            return;
+        }
+    }
+
     if (e.code === 'Backquote' && gameEngine && gameEngine.isRunning && !isMulti && !isReplayMode) {
         if (!retryHoldTimer) {
             retryHoldTimer = setInterval(() => {
@@ -1772,7 +2106,7 @@ window.addEventListener('keydown', (e) => {
         }
     }
 
-    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning) { 
+    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && gameEngine.onKeyDown) { 
         if (!e.repeat && !isReplayMode && !gameEngine.isSpectator) gameEngine.onKeyDown(KEY_MAP[e.code]); 
     }
 });
@@ -1794,10 +2128,11 @@ window.addEventListener('keyup', (e) => {
             if (gameEngine && gameEngine.isPaused) gameEngine.draw(gameEngine.getTime());
         }
     }
-    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode && !gameEngine.isSpectator) {
+    if (KEY_MAP.hasOwnProperty(e.code) && gameEngine && gameEngine.isRunning && !isReplayMode && !gameEngine.isSpectator && gameEngine.onKeyUp) {
         gameEngine.onKeyUp(KEY_MAP[e.code]);
     }
 });
+
 window.adjustGameVolumeByWheel = function(deltaY) {
     if (userSettings && userSettings.disableWheel) return;
     let mVol = userSettings.masterVol !== undefined ? userSettings.masterVol : 100;
@@ -1852,10 +2187,12 @@ function showInGameVolumeToast(vol) {
 window.addEventListener('click', (e) => {
     if (userSettings && userSettings.disableClick && gameEngine && gameEngine.isRunning && !gameEngine.isPaused) {
         const pauseScreen = document.getElementById('pause-screen');
+        const failScreen = document.getElementById('fail-screen');
         const resultScreen = document.getElementById('result-screen');
         const isPaused = pauseScreen && (pauseScreen.classList.contains('active') || pauseScreen.style.display === 'flex');
+        const isFailed = failScreen && (failScreen.classList.contains('active') || failScreen.style.display === 'flex');
         const isResult = resultScreen && (resultScreen.classList.contains('active') || resultScreen.style.display === 'flex');
-        if (!isPaused && !isResult) {
+        if (!isPaused && !isFailed && !isResult) {
             e.stopPropagation();
             e.preventDefault();
         }

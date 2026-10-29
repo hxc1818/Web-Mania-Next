@@ -40,6 +40,9 @@
         } catch(e) {}
         let settings = JSON.parse(localStorage.getItem('webmania_settings')) || {};
         if(!settings.keyBinds) settings.keyBinds = {};
+        if(!Array.isArray(settings.stdKeyBinds) || settings.stdKeyBinds.length < 2) {
+            settings.stdKeyBinds = ['KeyZ', 'KeyX'];
+        }
         
         for(let i=1; i<=18; i++) {
             if(!settings.keyBinds[i]) {
@@ -51,14 +54,29 @@
 
         let currentK = 4;
         const params = new URLSearchParams(window.location.search);
-        const urlK = parseInt(params.get('k'));
-        if (urlK >= 1 && urlK <= 18) {
-            currentK = urlK;
+        const rawK = params.get('k');
+        if (rawK && rawK.toUpperCase() === 'STD') {
+            currentK = 'STD';
+        } else {
+            const urlK = parseInt(rawK);
+            if (urlK >= 1 && urlK <= 18) {
+                currentK = urlK;
+            }
         }
 
         function renderKList() {
             const list = document.getElementById('k-list');
             list.innerHTML = '';
+
+            const stdBtn = document.createElement('button');
+            stdBtn.className = `osu-btn ${currentK === 'STD' ? '' : 'secondary'}`;
+            stdBtn.innerText = 'STD';
+            stdBtn.style.width = '100%';
+            stdBtn.style.height = '48px';
+            stdBtn.style.marginBottom = '5px';
+            stdBtn.onclick = () => { currentK = 'STD'; renderKList(); renderBinds(); };
+            list.appendChild(stdBtn);
+
             for(let i=1; i<=18; i++) {
                 const btn = document.createElement('button');
                 btn.className = `osu-btn ${i === currentK ? '' : 'secondary'}`;
@@ -74,6 +92,39 @@
         function renderBinds() {
             const cont = document.getElementById('binds-container');
             cont.innerHTML = '';
+            if (currentK === 'STD') {
+                const labels = ['Key 1 (主击打键)', 'Key 2 (副击打键)'];
+                for (let i = 0; i < 2; i++) {
+                    const row = document.createElement('div');
+                    row.className = 'lane-row';
+                    row.innerHTML = `
+                        <div class="lane-label" style="width: 160px; color: #ff66aa;">${labels[i]}</div>
+                        <input type="text" readonly class="bind-input" data-std-idx="${i}" value="${settings.stdKeyBinds[i] || ''}" placeholder="空 (Empty)">
+                    `;
+                    cont.appendChild(row);
+                }
+                document.querySelectorAll('.bind-input[data-std-idx]').forEach(inp => {
+                    inp.addEventListener('keydown', (e) => {
+                        e.preventDefault();
+                        const idx = parseInt(inp.getAttribute('data-std-idx'));
+                        if (e.code === 'Escape' || e.code === 'Backspace') {
+                            inp.value = '';
+                            settings.stdKeyBinds[idx] = '';
+                        } else {
+                            inp.value = e.code;
+                            settings.stdKeyBinds[idx] = e.code;
+                        }
+                    });
+                    inp.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        const idx = parseInt(inp.getAttribute('data-std-idx'));
+                        inp.value = '';
+                        settings.stdKeyBinds[idx] = '';
+                    });
+                });
+                return;
+            }
+
             const binds = settings.keyBinds[currentK];
             for(let i=0; i<currentK; i++) {
                 const row = document.createElement('div');
@@ -86,7 +137,7 @@
                 cont.appendChild(row);
             }
 
-            document.querySelectorAll('.bind-input').forEach(inp => {
+            document.querySelectorAll('.bind-input[data-lane]').forEach(inp => {
                 inp.addEventListener('keydown', (e) => {
                     e.preventDefault();
                     const lane = parseInt(inp.getAttribute('data-lane'));
@@ -120,8 +171,10 @@
         // 当因为传入参数强制进入某 K 数时，自动将左侧菜单滚至相应按钮
         setTimeout(() => {
             const buttons = document.getElementById('k-list').children;
-            if (buttons.length >= currentK) {
-                buttons[currentK - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (currentK === 'STD' && buttons.length > 0) {
+                buttons[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else if (typeof currentK === 'number' && buttons.length >= currentK + 1) {
+                buttons[currentK].scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }, 100);
     </script>

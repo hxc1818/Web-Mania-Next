@@ -740,7 +740,11 @@ window.addEventListener('DOMContentLoaded', () => {
         onChange: (val) => { sessionStorage.setItem('wm_sortDir', val); renderMapList(); }
     });
 
-    const keysOpts = [{ value: 'ALL', label: '全部 (ALL)' }];
+    const keysOpts = [
+        { value: 'ALL', label: '全部模式 (ALL)' },
+        { value: 'STD', label: 'osu!std' },
+        { value: 'MANIA', label: 'osu!mania (全部K数)' }
+    ];
     for(let i=1; i<=18; i++) keysOpts.push({ value: i.toString(), label: `${i}K` });
 
     const savedFilterKeys = sessionStorage.getItem('wm_filterKeys') || 'ALL';
@@ -865,6 +869,7 @@ function initSettingsUI() {
     initSlider('slider-bgDim', 'bgDim', 'bg_dim', 0, 100, 1, 80, v => v + '%');
     initSlider('slider-scrollSpeed', 'scrollSpeed', 'speed', 100, 4000, 10, 1000, v => v);
     initSlider('slider-trackScale', 'trackScale', 'scale', 0.1, 4, 0.1, 1.0, v => v.toFixed(1) + 'x');
+    initSlider('slider-cursorSize', 'cursorSize', 'cursor_size', 0.5, 2.0, 0.1, 1.0, v => v.toFixed(1) + 'x');
     initSlider('slider-masterVol', 'masterVol', 'master_vol', 0, 100, 1, 100, v => v + '%', updatePreviewVolume);
     initSlider('slider-bgVol', 'bgVol', 'bg_vol', 0, 100, 1, 50, v => v + '%', updatePreviewVolume);
     initSlider('slider-sfxVol', 'sfxVol', 'sfx_vol', 0, 100, 1, 100, v => v + '%');
@@ -892,6 +897,9 @@ function initSettingsUI() {
     initToggle('toggle-highPrecision', 'highPrecision', 'high_precision', false, () => { if (window.mouseManager) window.mouseManager.onSettingsChange(); });
     initToggle('toggle-disableWheel', 'disableWheel', 'disable_wheel', false);
     initToggle('toggle-disableClick', 'disableClick', 'disable_click', false);
+    initToggle('toggle-cursorTrail', 'cursorTrail', 'cursor_trail', true);
+    initToggle('toggle-snakingSliders', 'snakingSliders', 'snaking_sliders', true);
+    initToggle('toggle-hide300', 'hide300', 'hide_300', false);
     initToggle('toggle-hitErrorMeter', 'hitErrorMeter', 'hit_error', true);
     initToggle('toggle-noStoryboard', 'noStoryboard', 'no_sb', false);
     initToggle('toggle-autoOffset', 'autoOffset', 'auto_offset', false);
@@ -1097,7 +1105,8 @@ function applyRecommendedOffset() {
 function openKeybinds() {
     const w = screen.availWidth || 1280;
     const h = screen.availHeight || 720;
-    window.open('keybinds.html', 'Web Mania Next Keybinds', `width=${w},height=${h},left=0,top=0,autoHideMenuBar=true`);
+    const kParam = (selectedMap && selectedMap.mode === 0) ? '?k=STD' : (selectedMap && selectedMap.cs ? `?k=${Math.round(selectedMap.cs)}` : '');
+    window.open('keybinds.html' + kParam, 'Web Mania Next Keybinds', `width=${w},height=${h},left=0,top=0,autoHideMenuBar=true`);
 }
 
 function openOffsetCalibration() {
@@ -1207,33 +1216,188 @@ async function doScan(forceRescan = false) {
 
 document.getElementById('scan-btn').onclick = () => doScan(false);
 
-window.addEventListener('dragover', (e) => e.preventDefault());
+// 全局 Toast 提示组件
+function showToast(message, type = 'info', duration = 3500) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `wmn-toast ${type === 'loading' ? 'info' : type}`;
+
+    function getIcon(t) {
+        if (t === 'loading') return '<div class="toast-spinner"></div>';
+        if (t === 'success') return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        if (t === 'error') return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+        if (t === 'warning') return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
+        return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+    }
+
+    toast.innerHTML = `${getIcon(type)}<div style="flex:1; word-break:break-all;">${message}</div>`;
+    container.appendChild(toast);
+
+    void toast.offsetWidth;
+    toast.classList.add('show');
+
+    let removeTimer = null;
+    const removeToast = () => {
+        if (removeTimer) clearTimeout(removeTimer);
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+    };
+
+    if (duration > 0) {
+        removeTimer = setTimeout(removeToast, duration);
+    }
+
+    return {
+        update: (newMsg, newType) => {
+            if (newType) {
+                toast.className = `wmn-toast ${newType === 'loading' ? 'info' : newType} show`;
+            }
+            toast.innerHTML = `${getIcon(newType || type)}<div style="flex:1; word-break:break-all;">${newMsg}</div>`;
+        },
+        close: removeToast
+    };
+}
+
+let dragCounter = 0;
+const getDropOverlay = () => document.getElementById('drop-overlay');
+
+window.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+        const overlay = getDropOverlay();
+        if (overlay) overlay.classList.add('active');
+    }
+});
+
+window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+    }
+});
+
+window.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) {
+        dragCounter = 0;
+        const overlay = getDropOverlay();
+        if (overlay) overlay.classList.remove('active');
+    }
+});
+
 window.addEventListener('drop', async (e) => {
     e.preventDefault();
-    if(isSelector) return;
+    dragCounter = 0;
+    const overlay = getDropOverlay();
+    if (overlay) overlay.classList.remove('active');
 
-    const files = e.dataTransfer.files;
-    if (files.length > 0 && files[0].name.endsWith('.osz')) {
-        const folderPath = document.getElementById('folder-input').value || localStorage.getItem('wm_folderPath');
-        if (!folderPath) return alert('未配置路径。');
-        
-        const sts = document.getElementById('scan-status');
-        if (sts) { sts.style.color = '#60a5fa'; sts.innerText = '正在处理 OSZ...'; }
-        
-        const fd = new FormData();
-        fd.append('file', files[0]);
-        fd.append('folderPath', folderPath);
-        
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length === 0) return;
+
+    const oszFiles = files.filter(f => f.name.toLowerCase().endsWith('.osz'));
+    if (oszFiles.length === 0) {
+        const lang = userSettings.language || 'zh';
+        const msg = (i18nDict[lang] && i18nDict[lang].toast_not_osz) || '请拖入 .osz 格式的 osu! 谱面包';
+        showToast(msg, 'warning');
+        return;
+    }
+
+    const folderPath = document.getElementById('folder-input').value || localStorage.getItem('wm_folderPath');
+    if (!folderPath) {
+        const lang = userSettings.language || 'zh';
+        const msg = (i18nDict[lang] && i18nDict[lang].toast_no_folder) || '未配置 osu! Songs 文件夹路径，请先在初始化界面选择路径。';
+        showToast(msg, 'error', 4500);
+        return;
+    }
+
+    const lang = userSettings.language || 'zh';
+    const txtInstalling = (i18nDict[lang] && i18nDict[lang].toast_installing) || '正在解析并安装谱面: ';
+    const txtInstalled = (i18nDict[lang] && i18nDict[lang].toast_installed) || '已成功安装谱面: ';
+    const txtFailed = (i18nDict[lang] && i18nDict[lang].toast_install_fail) || '安装谱面失败: ';
+
+    let installedCount = 0;
+    let lastImportedDir = null;
+    let lastImportedBeatmaps = [];
+
+    for (let i = 0; i < oszFiles.length; i++) {
+        const file = oszFiles[i];
+        const progressLabel = oszFiles.length > 1 ? `(${i + 1}/${oszFiles.length}) ` : '';
+        const activeToast = showToast(`${progressLabel}${txtInstalling}${file.name}...`, 'loading', 0);
+
         try {
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('folderPath', folderPath);
+
             const res = await fetch(`${LOCAL_API_URL}/upload`, { method: 'POST', body: fd });
             const data = await res.json();
-            if (data.success) { 
-                if (sts) sts.innerText = '安装完成。正在重建缓存...'; 
-                doScan(true); 
-            } 
-            else throw new Error(data.error);
-        } catch (err) { 
-            if (sts) { sts.style.color = '#ef4444'; sts.innerText = '导入失败：' + err.message; }
+
+            if (!data.success) throw new Error(data.error || '安装发生错误');
+
+            installedCount++;
+            lastImportedDir = data.dirPath;
+
+            if (data.newBeatmaps && data.newBeatmaps.length > 0) {
+                lastImportedBeatmaps = data.newBeatmaps;
+                
+                // 实时更新前端曲库数据
+                beatmaps = beatmaps.filter(b => b.dirPath !== data.dirPath);
+                beatmaps.push(...data.newBeatmaps);
+                mapGroups[data.dirPath] = data.newBeatmaps;
+            }
+
+            const title = data.title || file.name.replace(/\.osz$/i, '');
+            const diffCountStr = data.count ? ` (${data.count} 个难度)` : '';
+            activeToast.update(`${progressLabel}${txtInstalled}${title}${diffCountStr}`, 'success');
+            setTimeout(() => activeToast.close(), 3500);
+        } catch (err) {
+            activeToast.update(`${progressLabel}${txtFailed}[${file.name}]: ${err.message}`, 'error');
+            setTimeout(() => activeToast.close(), 4500);
+        }
+    }
+
+    if (installedCount > 0) {
+        // 清除搜索关键字以便新安装的谱面立即可见
+        const searchInput = document.getElementById('search-input');
+        if (searchInput && searchInput.value) {
+            searchInput.value = '';
+            sessionStorage.removeItem('wm_search');
+        }
+
+        // 重新渲染曲库列表
+        renderMapList();
+
+        // 自动聚焦、展开并试听新安装的谱面
+        if (lastImportedDir) {
+            setTimeout(() => {
+                const header = document.querySelector(`.map-group-header[data-key="${lastImportedDir.replace(/"/g, '&quot;')}"]`);
+                if (header) {
+                    const groupEl = header.parentElement;
+                    if (!groupEl.classList.contains('expanded')) {
+                        header.click();
+                    } else {
+                        const firstItem = groupEl.querySelector('.map-diff-item');
+                        if (firstItem && lastImportedBeatmaps[0]) {
+                            selectMap(lastImportedBeatmaps[0], firstItem);
+                            firstItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }
+                    setTimeout(() => {
+                        groupEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 120);
+                }
+            }, 100);
         }
     }
 });
@@ -1338,7 +1502,14 @@ function renderMapList() {
         maps = maps.filter(m => {
             const stars = m.stars || getFakeStars(m.version);
             const cs = m.cs || 4;
-            if (filterKey !== 'ALL' && cs !== parseInt(filterKey)) return false;
+            const mode = m.mode !== undefined ? m.mode : 3;
+            if (filterKey === 'STD') {
+                if (mode !== 0) return false;
+            } else if (filterKey === 'MANIA') {
+                if (mode !== 3) return false;
+            } else if (filterKey !== 'ALL') {
+                if (mode !== 3 || cs !== parseInt(filterKey)) return false;
+            }
             if (stars < diffRange.min || stars > diffRange.max) return false;
             return true;
         });
@@ -1436,6 +1607,10 @@ function renderMapList() {
             const stars = bm.stars || getFakeStars(bm.version);
             const starColor = getStarColor(stars);
             const cs = bm.cs || 4;
+            const isStd = bm.mode === 0;
+            const modeBadge = isStd
+                ? `<span style="color:#ff66aa; font-weight:800; font-size:12px; margin-right:4px;">[STD]</span>`
+                : `<span style="color:#fbbf24; font-weight:800; font-size:12px; margin-right:4px;">[${cs}K]</span>`;
             const diffItem = document.createElement('div');
             diffItem.className = 'map-diff-item';
             diffItem.setAttribute('data-id', bm.id);
@@ -1445,7 +1620,7 @@ function renderMapList() {
                 <div style="display:flex; align-items:center; gap:12px;">
                     <div style="width:12px; height:12px; border-radius:3px; background:${starColor}; box-shadow: 0 0 10px ${starColor};"></div>
                     <div style="display:flex; flex-direction:column; gap:2px;">
-                        <div style="font-weight:600; color:#eee; font-size: 15px;"><span style="color:#fbbf24; font-weight:800; font-size:12px; margin-right:4px;">[${cs}K]</span>${bm.version}</div>
+                        <div style="font-weight:600; color:#eee; font-size: 15px;">${modeBadge}${bm.version}</div>
                         <div style="font-size:12px; color:${starColor}; font-weight:700;">${stars.toFixed(2)} ★</div>
                     </div>
                 </div>
@@ -1509,7 +1684,8 @@ async function fetchLocalLeaderboard(mapId) {
     panel.style.display = 'flex';
     try {
         const folderPath = localStorage.getItem('wm_folderPath');
-        const res = await fetch(`${LOCAL_API_URL}/local_scores?folderPath=${encodeURIComponent(folderPath)}&mapId=${encodeURIComponent(mapId)}`);
+        const modeParam = selectedMap && selectedMap.mode !== undefined ? selectedMap.mode : 3;
+        const res = await fetch(`${LOCAL_API_URL}/local_scores?folderPath=${encodeURIComponent(folderPath)}&mapId=${encodeURIComponent(mapId)}&mode=${modeParam}`);
         const data = await res.json();
         currentLocalScores = data.scores || [];
         if (currentLocalScores.length === 0) { list.innerHTML = '<div style="color:#aaa">暂无记录</div>'; } 
@@ -1543,7 +1719,11 @@ function playReplay(scoreId) {
 
     sessionStorage.setItem('webmania_multi', 'false');
     sessionStorage.setItem('webmania_current_map', JSON.stringify(selectedMap));
-    sessionStorage.setItem('webmania_replay_data', JSON.stringify({ player: scoreData.player, events: scoreData.replay }));
+    sessionStorage.setItem('webmania_replay_data', JSON.stringify({
+        player: scoreData.player,
+        mode: scoreData.mode !== undefined ? scoreData.mode : (selectedMap.mode !== undefined ? selectedMap.mode : 3),
+        events: scoreData.replay
+    }));
     setTimeout(() => { window.location.href = 'game.html'; }, 1000);
 }
 
@@ -1553,13 +1733,17 @@ async function selectMap(bm, element) {
     element.classList.add('selected');
     selectedMap = bm;
 
+    const isStd = bm.mode === 0;
     const csDisplay = bm.cs || 4;
     document.getElementById('info-title').innerText = bm.title;
     document.getElementById('info-artist').innerText = bm.artist;
-    document.getElementById('info-version').innerText = `[${csDisplay}K] ${bm.version}`;
+    document.getElementById('info-version').innerText = isStd ? `[STD] ${bm.version}` : `[${csDisplay}K] ${bm.version}`;
     const stars = bm.stars || getFakeStars(bm.version);
     document.getElementById('info-stars').innerText = `${stars.toFixed(2)} ★`;
     document.getElementById('info-stars').style.color = getStarColor(stars);
+
+    document.querySelectorAll('.std-stat').forEach(el => el.style.display = isStd ? '' : 'none');
+    document.querySelectorAll('.mania-stat').forEach(el => el.style.display = isStd ? 'none' : '');
 
     if (bm.bgPath) {
         const newBgUrl = `url("${LOCAL_API_URL}/file?path=${encodeURIComponent(bm.bgPath)}")`;
@@ -1607,12 +1791,25 @@ async function selectMap(bm, element) {
             parsedMapCache[bm.osuPath] = osuText;
         }
         const parsed = parseOsuFileLite(osuText);
-        document.getElementById('stat-bpm').innerText = parsed.bpm;
+        document.getElementById('stat-bpm').innerText = parsed.bpm || bm.bpm || 0;
         document.getElementById('stat-hp').innerText = parsed.hp;
         document.getElementById('stat-od').innerText = parsed.od; 
-        document.getElementById('stat-notes').innerText = parsed.noteCount;
-        document.getElementById('stat-holds').innerText = parsed.holdsCount || parsed.holdCount;
-        document.getElementById('stat-keys').innerText = (parsed.cs || bm.cs || 4) + 'K';
+        if (isStd) {
+            const elCs = document.getElementById('stat-cs');
+            const elAr = document.getElementById('stat-ar');
+            const elCir = document.getElementById('stat-circles');
+            const elSli = document.getElementById('stat-sliders');
+            const elSpi = document.getElementById('stat-spinners');
+            if (elCs) elCs.innerText = parsed.cs;
+            if (elAr) elAr.innerText = parsed.ar;
+            if (elCir) elCir.innerText = parsed.circles;
+            if (elSli) elSli.innerText = parsed.sliders;
+            if (elSpi) elSpi.innerText = parsed.spinners;
+        } else {
+            document.getElementById('stat-notes').innerText = parsed.noteCount;
+            document.getElementById('stat-holds').innerText = parsed.holdsCount || parsed.holdCount;
+            document.getElementById('stat-keys').innerText = (parsed.cs || bm.cs || 4) + 'K';
+        }
 
         if (currentPreviewAudioPath !== bm.audioPath) {
             currentPreviewAudioPath = bm.audioPath;
@@ -1642,16 +1839,22 @@ async function selectMap(bm, element) {
 
 function parseOsuFileLite(osuText) {
     const lines = osuText.split(/\r?\n/);
-    let section = '', bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, beatLengths = [], videoPath = null;
+    let section = '', mode = 0, bpm = 0, hp = 0, od = 5, cs = 4, ar = 5, arExplicit = false, previewTime = -1;
+    let noteCount = 0, holdCount = 0, circles = 0, sliders = 0, spinners = 0;
+    let beatLengths = [], videoPath = null;
     for (let line of lines) {
         line = line.trim();
         if (line.startsWith('[')) { section = line; continue; }
-        if (!line) continue;
-        if (section === '[General]' && line.startsWith('PreviewTime:')) previewTime = parseInt(line.split(':')[1].trim());
+        if (!line || line.startsWith('//')) continue;
+        if (section === '[General]') {
+            if (line.startsWith('PreviewTime:')) previewTime = parseInt(line.split(':')[1].trim());
+            else if (line.startsWith('Mode:')) mode = parseInt(line.split(':')[1].trim());
+        }
         else if (section === '[Difficulty]') {
             if (line.startsWith('HPDrainRate:')) hp = parseFloat(line.split(':')[1].trim());
-            if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
-            if (line.startsWith('CircleSize:')) cs = parseFloat(line.split(':')[1].trim()); 
+            else if (line.startsWith('OverallDifficulty:')) od = parseFloat(line.split(':')[1].trim()); 
+            else if (line.startsWith('CircleSize:')) cs = parseFloat(line.split(':')[1].trim()); 
+            else if (line.startsWith('ApproachRate:')) { ar = parseFloat(line.split(':')[1].trim()); arExplicit = true; }
         }
         else if (section === '[Events]') {
             const parts = line.split(',');
@@ -1664,12 +1867,20 @@ function parseOsuFileLite(osuText) {
         else if (section === '[TimingPoints]') { let parts = line.split(','); if (parts.length >= 2 && parseFloat(parts[1]) > 0) beatLengths.push(parseFloat(parts[1])); } 
         else if (section === '[HitObjects]') {
             const parts = line.split(',');
-            if (parts.length >= 5) {
-                const column = Math.floor(parseInt(parts[0]) * cs / 512);
-                if (column >= 0 && column < cs) { if ((parseInt(parts[3]) & 128) !== 0) holdCount++; else noteCount++; }
+            if (parts.length >= 4) {
+                const type = parseInt(parts[3]);
+                if (mode === 0) {
+                    if (type & 1) circles++;
+                    else if (type & 2) sliders++;
+                    else if (type & 8) spinners++;
+                } else {
+                    const column = Math.floor(parseInt(parts[0]) * cs / 512);
+                    if (column >= 0 && column < cs) { if ((type & 128) !== 0) holdCount++; else noteCount++; }
+                }
             }
         }
     }
+    if (!arExplicit) ar = od;
     if (beatLengths.length > 0) {
         const counts = new Map();
         let maxCount = 0;
@@ -1685,7 +1896,7 @@ function parseOsuFileLite(osuText) {
         }
         bpm = Math.round(60000 / mainBL);
     }
-    return { bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath };
+    return { mode, bpm, hp, od, cs, ar, previewTime, noteCount, holdCount, circles, sliders, spinners, videoPath };
 }
 
 async function startGame() {

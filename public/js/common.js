@@ -81,7 +81,12 @@ const defaultSettings = {
     threadMode: 'single',
     showFps: false,
     hwAccel: true,
-    highPrecision: false, sensitivity: 1.0, confineCursor: 'never', disableWheel: false, disableClick: false, multiId: ''
+    highPrecision: false, sensitivity: 1.0, confineCursor: 'never', disableWheel: false, disableClick: false, multiId: '',
+    stdKeyBinds: ['KeyZ', 'KeyX'],
+    cursorSize: 1.0,
+    cursorTrail: true,
+    snakingSliders: true,
+    hide300: false
 };
 
 for (let i = 1; i <= 18; i++) {
@@ -116,6 +121,10 @@ if (Array.isArray(userSettings.keyBinds)) {
     }
 }
 
+if (!Array.isArray(userSettings.stdKeyBinds) || userSettings.stdKeyBinds.length < 2) {
+    userSettings.stdKeyBinds = ['KeyZ', 'KeyX'];
+}
+
 localStorage.setItem('webmania_settings', JSON.stringify(userSettings));
 
 const i18nDict = {
@@ -139,7 +148,8 @@ const i18nDict = {
         sort_asc: "升序", sort_desc: "降序", select_song_start: "选择一首歌曲开始",
         loading_map: "正在加载谱面...", local_scores: "本地分数", global_scores: "全球排行榜",
         random_map: "[ 随机选歌 ]", rend_default: "默认", unlimited: "无限制",
-        single_thread: "单线程", multi_thread: "多线程", high_precision: "高精度鼠标", mouse_sensitivity: "光标灵敏度", confine_cursor: "将光标限制在窗口内", confine_never: "不限制", confine_play: "仅在游玩时限制", confine_always: "总是限制", disable_wheel: "在游戏中禁用鼠标滚轮调整音量", disable_click: "在游戏中禁用鼠标点击", calibrate_offset: "主动调整音频延迟"
+        single_thread: "单线程", multi_thread: "多线程", high_precision: "高精度鼠标", mouse_sensitivity: "光标灵敏度", confine_cursor: "将光标限制在窗口内", confine_never: "不限制", confine_play: "仅在游玩时限制", confine_always: "总是限制", disable_wheel: "在游戏中禁用鼠标滚轮调整音量", disable_click: "在游戏中禁用鼠标点击", calibrate_offset: "主动调整音频延迟",
+        cursor_size: "光标尺寸 (osu!std)", cursor_trail: "开启光标拖尾 (osu!std)", snaking_sliders: "开启滑条渐出动画 (osu!std)", hide_300: "隐藏 300 判定文字 (osu!std)", drop_osz_title: "松开鼠标以自动解析并安装谱面", drop_osz_desc: "支持单个或多个 .osz 谱面包，将自动解压并加入曲库", toast_installing: "正在解析并安装谱面: ", toast_installed: "已成功安装谱面: ", toast_install_fail: "安装谱面失败: ", toast_not_osz: "请拖入 .osz 格式的 osu! 谱面包", toast_no_folder: "未配置 osu! Songs 文件夹路径，请先在初始化界面选择路径。"
     },
     en: {
         settings: "Settings", cat_general: "General", open_wizard: "Open Setup Wizard",
@@ -161,7 +171,8 @@ const i18nDict = {
         sort_asc: "Ascending", sort_desc: "Descending", select_song_start: "Select a song to start",
         loading_map: "Loading beatmap...", local_scores: "Local Scores", global_scores: "Global Rankings",
         random_map: "[ Random Map ]", rend_default: "Default", unlimited: "Unlimited",
-        single_thread: "Single Thread", multi_thread: "Multi Thread", high_precision: "Raw Input", mouse_sensitivity: "Mouse Sensitivity", confine_cursor: "Confine Cursor", confine_never: "Never", confine_play: "During Gameplay", confine_always: "Always", disable_wheel: "Disable Mouse Wheel in Game", disable_click: "Disable Mouse Clicks in Game", calibrate_offset: "Active Audio Offset Calibration"
+        single_thread: "Single Thread", multi_thread: "Multi Thread", high_precision: "Raw Input", mouse_sensitivity: "Mouse Sensitivity", confine_cursor: "Confine Cursor", confine_never: "Never", confine_play: "During Gameplay", confine_always: "Always", disable_wheel: "Disable Mouse Wheel in Game", disable_click: "Disable Mouse Clicks in Game", calibrate_offset: "Active Audio Offset Calibration",
+        cursor_size: "Cursor Size (osu!std)", cursor_trail: "Enable Cursor Trail (osu!std)", snaking_sliders: "Snaking Sliders (osu!std)", hide_300: "Hide 300 Judgements (osu!std)", drop_osz_title: "Release to parse and install beatmap", drop_osz_desc: "Supports .osz packages, will automatically extract and add to library", toast_installing: "Parsing and installing beatmap: ", toast_installed: "Successfully installed beatmap: ", toast_install_fail: "Failed to install beatmap: ", toast_not_osz: "Please drop .osz format osu! beatmaps", toast_no_folder: "osu! Songs folder path not configured. Please select path first."
     }
 };
 
@@ -330,6 +341,11 @@ class HighPrecisionMouseManager {
 
     updateCursorPos() {
         if (this.cursorEl) {
+            if (window.isStdGameplayActive) {
+                this.cursorEl.style.display = 'none';
+            } else if (this.isLocked) {
+                this.cursorEl.style.display = 'block';
+            }
             this.cursorEl.style.transform = `translate3d(${this.cursorX}px, ${this.cursorY}px, 0)`;
         }
     }
@@ -341,7 +357,7 @@ class HighPrecisionMouseManager {
             if (isLocked) {
                 document.body.classList.add('wmn-pointer-locked');
                 if (this.cursorEl) {
-                    this.cursorEl.style.display = 'block';
+                    this.cursorEl.style.display = window.isStdGameplayActive ? 'none' : 'block';
                     this.updateCursorPos();
                 }
             } else {
@@ -373,6 +389,10 @@ class HighPrecisionMouseManager {
             this.cursorX = Math.max(0, Math.min(window.innerWidth - 1, this.cursorX + dx));
             this.cursorY = Math.max(0, Math.min(window.innerHeight - 1, this.cursorY + dy));
             this.updateCursorPos();
+
+            if (typeof window.onWmnCursorMove === 'function') {
+                window.onWmnCursorMove(this.cursorX, this.cursorY);
+            }
 
             if (this.isMouseDown && this.dragTarget) {
                 this.dragTarget.dispatchEvent(new PointerEvent('pointermove', {
@@ -417,12 +437,14 @@ class HighPrecisionMouseManager {
             if (this.cursorEl) this.cursorEl.classList.add('active');
 
             const isGame = window.location.pathname.includes('game.html');
-            if (isGame && window.userSettings && window.userSettings.disableClick) {
+            if (isGame && window.userSettings && window.userSettings.disableClick && !window.isStdGameplayActive) {
                 const pauseScreen = document.getElementById('pause-screen');
+                const failScreen = document.getElementById('fail-screen');
                 const resultScreen = document.getElementById('result-screen');
                 const isPaused = pauseScreen && (pauseScreen.classList.contains('active') || pauseScreen.style.display === 'flex' || pauseScreen.style.display === 'block');
+                const isFailed = failScreen && (failScreen.classList.contains('active') || failScreen.style.display === 'flex' || failScreen.style.display === 'block');
                 const isResult = resultScreen && (resultScreen.classList.contains('active') || resultScreen.style.display === 'flex' || resultScreen.style.display === 'block');
-                if (!isPaused && !isResult) {
+                if (!isPaused && !isFailed && !isResult) {
                     return;
                 }
             }
@@ -464,12 +486,14 @@ class HighPrecisionMouseManager {
             if (this.cursorEl) this.cursorEl.classList.remove('active');
 
             const isGame = window.location.pathname.includes('game.html');
-            if (isGame && window.userSettings && window.userSettings.disableClick) {
+            if (isGame && window.userSettings && window.userSettings.disableClick && !window.isStdGameplayActive) {
                 const pauseScreen = document.getElementById('pause-screen');
+                const failScreen = document.getElementById('fail-screen');
                 const resultScreen = document.getElementById('result-screen');
                 const isPaused = pauseScreen && (pauseScreen.classList.contains('active') || pauseScreen.style.display === 'flex' || pauseScreen.style.display === 'block');
+                const isFailed = failScreen && (failScreen.classList.contains('active') || failScreen.style.display === 'flex' || failScreen.style.display === 'block');
                 const isResult = resultScreen && (resultScreen.classList.contains('active') || resultScreen.style.display === 'flex' || resultScreen.style.display === 'block');
-                if (!isPaused && !isResult) {
+                if (!isPaused && !isFailed && !isResult) {
                     return;
                 }
             }

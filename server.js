@@ -12,6 +12,7 @@ const os = require('os');
 const net = require('net');
 const EventEmitter = require('events');
 const crypto = require('crypto');
+const { parseBeatmap, estimateStars } = require('./public/js/beatmap.js');
 
 // 创建全局窗口事件控制器
 const winControl = new EventEmitter();
@@ -40,8 +41,14 @@ const upload = multer({ dest: tempUploadsDir });
 function parseOsuMetadataFromString(content) {
     const lines = content.split(/\r?\n/);
     let section = '';
-    const metadata = { title: 'Unknown', artist: 'Unknown', version: 'Normal', bg: '', stars: 0, audio: '', bpm: 0, od: 5, cs: 4 };
-    let mode = 0, circleSize = 4;
+    const metadata = {
+        mode: 0,
+        title: 'Unknown', artist: 'Unknown', creator: 'Unknown', version: 'Normal',
+        beatmapId: null, beatmapSetId: null, titleUnicode: '', artistUnicode: '', bg: '', stars: 0, audio: '', bpm: 0,
+        od: 5, cs: 4, ar: 5, hp: 5,
+        noteCount: 0, holdCount: 0, circles: 0, sliders: 0, spinners: 0, objects: 0
+    };
+    let mode = 0, circleSize = 4, arExplicit = false;
     
     let inHitObjects = false;
     let objCount = 0;
@@ -54,7 +61,7 @@ function parseOsuMetadataFromString(content) {
             inHitObjects = (section === 'HitObjects');
             continue; 
         }
-        if (!line) continue;
+        if (!line || line.startsWith('//')) continue;
 
         if (section === 'General') {
             if (line.startsWith('Mode:')) mode = parseInt(line.split(':')[1]);
@@ -62,19 +69,33 @@ function parseOsuMetadataFromString(content) {
         }
         else if (section === 'Metadata') {
             if (line.startsWith('Title:')) metadata.title = line.substring(line.indexOf(':') + 1).trim();
-            if (line.startsWith('Artist:')) metadata.artist = line.substring(line.indexOf(':') + 1).trim();
-            if (line.startsWith('Version:')) metadata.version = line.substring(line.indexOf(':') + 1).trim();
+            else if (line.startsWith('Artist:')) metadata.artist = line.substring(line.indexOf(':') + 1).trim();
+            else if (line.startsWith('Creator:')) metadata.creator = line.substring(line.indexOf(':') + 1).trim();
+            else if (line.startsWith('Version:')) metadata.version = line.substring(line.indexOf(':') + 1).trim();
+            else if (line.startsWith('BeatmapID:')) metadata.beatmapId = line.substring(line.indexOf(':') + 1).trim();
+            else if (line.startsWith('BeatmapSetID:')) metadata.beatmapSetId = line.substring(line.indexOf(':') + 1).trim();
+            else if (line.startsWith('TitleUnicode:')) metadata.titleUnicode = line.substring(line.indexOf(':') + 1).trim();
+            else if (line.startsWith('ArtistUnicode:')) metadata.artistUnicode = line.substring(line.indexOf(':') + 1).trim();
         } else if (section === 'Difficulty') {
             if (line.startsWith('CircleSize:')) {
                 circleSize = parseFloat(line.split(':')[1]);
-                metadata.cs = circleSize; // 记录K数
+                metadata.cs = circleSize;
             }
             else if (line.startsWith('OverallDifficulty:')) metadata.od = parseFloat(line.split(':')[1]);
+            else if (line.startsWith('ApproachRate:')) {
+                metadata.ar = parseFloat(line.split(':')[1]);
+                arExplicit = true;
+            }
+            else if (line.startsWith('HPDrainRate:')) metadata.hp = parseFloat(line.split(':')[1]);
         } else if (section === 'Events') {
             const parts = line.split(',');
-            if (parts[0] === '0' && line.includes('"')) {
-                const match = line.match(/"([^"]+)"/);
-                if (match) metadata.bg = match[1].trim();
+            if (parts[0] === '0') {
+                if (line.includes('"')) {
+                    const match = line.match(/"([^"]+)"/);
+                    if (match) metadata.bg = match[1].trim();
+                } else if (parts.length >= 3) {
+                    metadata.bg = parts[2].trim().replace(/^"/, '').replace(/"$/, '');
+                }
             }
         } else if (section === 'TimingPoints') {
             const parts = line.split(',');
@@ -86,17 +107,23 @@ function parseOsuMetadataFromString(content) {
             }
         } else if (inHitObjects) {
             const parts = line.split(',');
-            if (parts.length >= 3) {
+            if (parts.length >= 4) {
                 const time = parseInt(parts[2]);
+                const type = parseInt(parts[3]);
                 if (!isNaN(time)) {
                     if (firstTime === -1) firstTime = time;
                     lastTime = time;
                     objCount++;
+                    if ((type & 128) !== 0) metadata.holdCount++;
+                    else metadata.noteCount++;
                 }
             }
         }
     }
-    
+    if (!arExplicit) metadata.ar = metadata.od;
+    metadata.mode = mode;
+    metadata.objects = objCount;
+
     if (mode === 3) {
         if (objCount > 0 && lastTime > firstTime) {
             const drainTime = (lastTime - firstTime) / 1000;
@@ -104,6 +131,26 @@ function parseOsuMetadataFromString(content) {
             metadata.stars = Math.max(1.0, Math.min(10.0, nps * 0.3 + 0.5));
         }
         return metadata;
+    } else if (mode === 0) {
+        try {
+            const bm = parseBeatmap(content);
+            if (!bm.hitObjects || bm.hitObjects.length === 0) return null;
+            let circles = 0, sliders = 0, spinners = 0;
+            for (const o of bm.hitObjects) {
+                if (o.kind === 'circle') circles++;
+                else if (o.kind === 'slider') sliders++;
+                else if (o.kind === 'spinner') spinners++;
+            }
+            metadata.circles = circles;
+            metadata.sliders = sliders;
+            metadata.spinners = spinners;
+            metadata.objects = bm.hitObjects.length;
+            metadata.bpm = Math.round(bm.mainBpm || metadata.bpm || 120);
+            metadata.stars = estimateStars(bm);
+            return metadata;
+        } catch (e) {
+            return null;
+        }
     }
     return null;
 }
@@ -120,10 +167,64 @@ function getFileIgnoreCase(files, extensions) {
     return null;
 }
 
+
+function scanSingleFolder(itemPath) {
+    const beatmaps = [];
+    const normalize = p => p ? p.replace(/\\/g, '/') : null;
+    if (!fs.existsSync(itemPath) || !fs.statSync(itemPath).isDirectory()) return beatmaps;
+
+    const files = fs.readdirSync(itemPath);
+    const osuFiles = files.filter(f => f.toLowerCase().endsWith('.osu'));
+    for (const osuFile of osuFiles) {
+        const fullOsuPath = path.join(itemPath, osuFile);
+        const meta = parseOsuMetadata(fullOsuPath);
+        if (meta) {
+            let audioFile = null;
+            if (meta.audio) {
+                const targetLower = meta.audio.toLowerCase();
+                audioFile = files.find(f => f.toLowerCase() === targetLower);
+            }
+            if (!audioFile) {
+                audioFile = getFileIgnoreCase(files, ['.mp3', '.ogg']) || getFileIgnoreCase(files, ['.wav']);
+            }
+
+            beatmaps.push({
+                id: Buffer.from(fullOsuPath).toString('base64'),
+                mode: meta.mode !== undefined ? meta.mode : 3,
+                dirPath: normalize(itemPath),
+                osuPath: normalize(fullOsuPath),
+                title: meta.title,
+                artist: meta.artist,
+                creator: meta.creator || 'Unknown',
+                version: meta.version,
+                beatmapId: meta.beatmapId || null,
+                cs: meta.cs || 4,
+                ar: meta.ar !== undefined ? meta.ar : (meta.od || 5),
+                od: meta.od || 5,
+                hp: meta.hp !== undefined ? meta.hp : 5,
+                stars: meta.stars || 0,
+                bpm: meta.bpm || 0,
+                noteCount: meta.noteCount || 0,
+                holdCount: meta.holdCount || 0,
+                circles: meta.circles || 0,
+                sliders: meta.sliders || 0,
+                spinners: meta.spinners || 0,
+                objects: meta.objects || 0,
+                audioPath: normalize(audioFile ? path.join(itemPath, audioFile) : null),
+                bgPath: normalize(meta.bg ? path.join(itemPath, meta.bg) : null)
+            });
+        }
+    }
+    return beatmaps;
+}
+
 function clearCache() {
-    const cacheFile = path.join(APP_DATA_PATH, 'Temp', 'webmania_cache.json');
-    if (fs.existsSync(cacheFile)) {
-        try { fs.unlinkSync(cacheFile); } catch(e) {}
+    const cacheFiles = ['webmania_cache.json', 'webmania_cache_v2.json'];
+    for (const cf of cacheFiles) {
+        const cacheFile = path.join(APP_DATA_PATH, 'Temp', cf);
+        if (fs.existsSync(cacheFile)) {
+            try { fs.unlinkSync(cacheFile); } catch(e) {}
+        }
     }
 }
 
@@ -191,7 +292,7 @@ app.post('/api/cache_video', upload.single('video'), (req, res) => {
 
 app.post('/api/local_scores', (req, res) => {
     try {
-        const { folderPath, mapId, scoreData } = req.body;
+        const { folderPath, mapId, scoreData, mode } = req.body;
         if (!folderPath || !fs.existsSync(folderPath)) throw new Error('无效的文件夹路径');
 
         const scoresDir = path.join(APP_DATA_PATH, 'Temp', 'scores');
@@ -205,6 +306,7 @@ app.post('/api/local_scores', (req, res) => {
         
         scoreData.id = 'rep_' + Date.now().toString() + '_' + Math.floor(Math.random()*1000);
         scoreData.date = Date.now();
+        scoreData.mode = mode !== undefined ? Number(mode) : (scoreData.mode !== undefined ? Number(scoreData.mode) : 3);
         
         scores.push(scoreData);
         scores.sort((a, b) => b.score - a.score);
@@ -227,18 +329,46 @@ app.post('/api/local_scores', (req, res) => {
 
 app.get('/api/local_scores', (req, res) => {
     try {
-        const { folderPath, mapId } = req.query;
+        const { folderPath, mapId, mode } = req.query;
         if (!folderPath || !fs.existsSync(folderPath)) return res.json({ success: true, scores: [] });
 
         const scoreFile = path.join(APP_DATA_PATH, 'Temp', 'scores', `${mapId}.json`);
         if (fs.existsSync(scoreFile)) {
-            const scores = JSON.parse(fs.readFileSync(scoreFile, 'utf-8'));
+            let scores = JSON.parse(fs.readFileSync(scoreFile, 'utf-8'));
+            if (mode !== undefined && mode !== '') {
+                const targetMode = Number(mode);
+                scores = scores.filter(s => (s.mode !== undefined ? Number(s.mode) : 3) === targetMode);
+            }
             res.json({ success: true, scores: scores });
         } else {
             res.json({ success: true, scores: [] });
         }
     } catch(e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/dir_samples', (req, res) => {
+    try {
+        const { dirPath, excludeAudio } = req.query;
+        if (!dirPath || !fs.existsSync(dirPath)) return res.json({ success: true, files: [] });
+        const exLower = excludeAudio ? path.basename(excludeAudio).toLowerCase() : '';
+        const sampleFiles = [];
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        for (const ent of entries) {
+            if (ent.isFile() && /\.(wav|ogg|mp3)$/i.test(ent.name)) {
+                if (exLower && ent.name.toLowerCase() === exLower) continue;
+                try {
+                    const st = fs.statSync(path.join(dirPath, ent.name));
+                    if (st.size <= 3 * 1024 * 1024) {
+                        sampleFiles.push(ent.name);
+                    }
+                } catch (e) {}
+            }
+        }
+        res.json({ success: true, files: sampleFiles });
+    } catch (e) {
+        res.json({ success: false, files: [] });
     }
 });
 
@@ -334,7 +464,7 @@ app.post('/api/scan', (req, res) => {
     if (!folderPath || !fs.existsSync(folderPath)) return res.status(400).json({ error: '无效的路径' });
 
     const tempDir = path.join(APP_DATA_PATH, 'Temp');
-    const cacheFile = path.join(tempDir, 'webmania_cache.json');
+    const cacheFile = path.join(tempDir, 'webmania_cache_v2.json');
 
     if (!forceRescan && fs.existsSync(cacheFile)) {
         try {
@@ -345,7 +475,6 @@ app.post('/api/scan', (req, res) => {
     }
 
     const beatmaps = [];
-    const normalize = p => p ? p.replace(/\\/g, '/') : null;
 
     try {
         const items = fs.readdirSync(folderPath);
@@ -354,37 +483,8 @@ app.post('/api/scan', (req, res) => {
             if (item === 'Temp') continue; 
 
             if (fs.statSync(itemPath).isDirectory()) {
-                const files = fs.readdirSync(itemPath);
-                const osuFiles = files.filter(f => f.toLowerCase().endsWith('.osu'));
-                for (const osuFile of osuFiles) {
-                    const fullOsuPath = path.join(itemPath, osuFile);
-                    const meta = parseOsuMetadata(fullOsuPath);
-                    if (meta) {
-                        let audioFile = null;
-                        if (meta.audio) {
-                            const targetLower = meta.audio.toLowerCase();
-                            audioFile = files.find(f => f.toLowerCase() === targetLower);
-                        }
-                        if (!audioFile) {
-                            audioFile = getFileIgnoreCase(files, ['.mp3', '.ogg']) || getFileIgnoreCase(files, ['.wav']);
-                        }
-
-                        beatmaps.push({
-                            id: Buffer.from(fullOsuPath).toString('base64'),
-                            dirPath: normalize(itemPath),
-                            osuPath: normalize(fullOsuPath),
-                            title: meta.title,
-                            artist: meta.artist,
-                            version: meta.version,
-                            cs: meta.cs || 4,
-                            stars: meta.stars || 0,
-                            bpm: meta.bpm || 0,
-                            od: meta.od || 5,
-                            audioPath: normalize(audioFile ? path.join(itemPath, audioFile) : null),
-                            bgPath: normalize(meta.bg ? path.join(itemPath, meta.bg) : null)
-                        });
-                    }
-                }
+                const bms = scanSingleFolder(itemPath);
+                beatmaps.push(...bms);
             }
         }
         
@@ -401,15 +501,83 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     try {
         const folderPath = req.body.folderPath;
         if (!folderPath || !fs.existsSync(folderPath)) throw new Error('目标文件夹不存在');
+        if (!req.file || !fs.existsSync(req.file.path)) throw new Error('上传文件无效');
+
         const zip = new AdmZip(req.file.path);
-        const folderName = req.file.originalname.replace('.osz', '').replace(/[^a-zA-Z0-9 \-_]/g, '');
+
+        let originalname = req.file.originalname;
+        try {
+            const decoded = Buffer.from(originalname, 'latin1').toString('utf8');
+            if (!decoded.includes('\ufffd') && decoded !== originalname) {
+                originalname = decoded;
+            }
+        } catch(e) {}
+
+        let metaTitle = '';
+        let metaArtist = '';
+        let metaBeatmapSetId = '';
+        const zipEntries = zip.getEntries();
+        for (const entry of zipEntries) {
+            if (entry.entryName.toLowerCase().endsWith('.osu') && !entry.isDirectory) {
+                try {
+                    const osuText = entry.getData().toString('utf8');
+                    const meta = parseOsuMetadataFromString(osuText);
+                    if (meta) {
+                        if (!metaTitle && meta.title && meta.title !== 'Unknown') metaTitle = meta.title;
+                        if (!metaArtist && meta.artist && meta.artist !== 'Unknown') metaArtist = meta.artist;
+                        if (!metaBeatmapSetId && meta.beatmapSetId) metaBeatmapSetId = meta.beatmapSetId;
+                    }
+                    if (metaTitle && metaArtist) break;
+                } catch(e) {}
+            }
+        }
+
+        let rawFolderName = '';
+        if (metaTitle) {
+            rawFolderName = `${metaBeatmapSetId && metaBeatmapSetId !== '-1' ? metaBeatmapSetId + ' ' : ''}${metaArtist ? metaArtist + ' - ' : ''}${metaTitle}`;
+        } else {
+            rawFolderName = originalname.replace(/\.osz$/i, '');
+        }
+
+        let folderName = rawFolderName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+        folderName = folderName.replace(/^\.+/, '').replace(/\.+$/, '').trim();
+        if (!folderName) folderName = 'Map_' + Date.now();
+
         const targetPath = path.join(folderPath, folderName);
         if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
         zip.extractAllTo(targetPath, true);
         fs.unlinkSync(req.file.path);
-        
-        clearCache();
-        res.json({ success: true, dirName: folderName });
+
+        const newBeatmaps = scanSingleFolder(targetPath);
+        const normalize = p => p ? p.replace(/\\/g, '/') : null;
+        const normTarget = normalize(targetPath);
+
+        // 增量更新谱面缓存
+        const tempDir = path.join(APP_DATA_PATH, 'Temp');
+        const cacheFile = path.join(tempDir, 'webmania_cache_v2.json');
+        let cachedBeatmaps = [];
+        if (fs.existsSync(cacheFile)) {
+            try {
+                cachedBeatmaps = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+                cachedBeatmaps = cachedBeatmaps.filter(b => b.dirPath !== normTarget);
+            } catch(e) {
+                cachedBeatmaps = [];
+            }
+        }
+        cachedBeatmaps.push(...newBeatmaps);
+        try {
+            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+            fs.writeFileSync(cacheFile, JSON.stringify(cachedBeatmaps));
+        } catch(e) {}
+
+        res.json({
+            success: true,
+            dirName: folderName,
+            dirPath: normTarget,
+            newBeatmaps: newBeatmaps,
+            count: newBeatmaps.length,
+            title: metaTitle || folderName
+        });
     } catch (err) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         res.status(500).json({ error: err.message });
@@ -443,10 +611,10 @@ app.get('/api/sayobot_random', async (req, res) => {
                 if (result && result.data && result.data.status === 0 && result.data.data) {
                     const detailData = result.data.data;
                     if (detailData.bid_data) {
-                        const maniaDiffs = detailData.bid_data.filter(d => d.mode === 3);
-                        if (maniaDiffs.length > 0) {
+                        const validDiffs = detailData.bid_data.filter(d => d.mode === 0 || d.mode === 3);
+                        if (validDiffs.length > 0) {
                             if (!finalMaps.find(m => m.sid === detailData.sid)) {
-                                const randomDiff = maniaDiffs[Math.floor(Math.random() * maniaDiffs.length)];
+                                const randomDiff = validDiffs[Math.floor(Math.random() * validDiffs.length)];
                                 detailData.selected_diff = randomDiff;
                                 finalMaps.push(detailData);
                             }
