@@ -147,7 +147,7 @@ const i18nDict = {
         sort_title: "标题 (A-Z)", sort_artist: "艺术家 (A-Z)", sort_diff: "难度", sort_bpm: "BPM",
         sort_asc: "升序", sort_desc: "降序", select_song_start: "选择一首歌曲开始",
         loading_map: "正在加载谱面...", local_scores: "本地分数", global_scores: "全球排行榜",
-        random_map: "[ 随机选歌 ]", rend_default: "默认", unlimited: "无限制",
+        random_map: "[ 随机选歌 ]", mods_btn: "Mods (F1)", mods_title: "游戏模组", mods_subtitle: "选择模组以调整谱面难度与玩法（快捷键 F1 / 对应字母键）", score_multiplier: "得分倍率", reset_mods: "全部重置 (1)", cat_reduction: "难度降低", cat_increase: "难度增加", cat_special: "特殊", rend_default: "默认", unlimited: "无限制",
         single_thread: "单线程", multi_thread: "多线程", high_precision: "高精度鼠标", mouse_sensitivity: "光标灵敏度", confine_cursor: "将光标限制在窗口内", confine_never: "不限制", confine_play: "仅在游玩时限制", confine_always: "总是限制", disable_wheel: "在游戏中禁用鼠标滚轮调整音量", disable_click: "在游戏中禁用鼠标点击", calibrate_offset: "主动调整音频延迟",
         cursor_size: "光标尺寸 (osu!std)", cursor_trail: "开启光标拖尾 (osu!std)", snaking_sliders: "开启滑条渐出动画 (osu!std)", hide_300: "隐藏 300 判定文字 (osu!std)", drop_osz_title: "松开鼠标以自动解析并安装谱面", drop_osz_desc: "支持单个或多个 .osz 谱面包，将自动解压并加入曲库", toast_installing: "正在解析并安装谱面: ", toast_installed: "已成功安装谱面: ", toast_install_fail: "安装谱面失败: ", toast_not_osz: "请拖入 .osz 格式的 osu! 谱面包", toast_no_folder: "未配置 osu! Songs 文件夹路径，请先在初始化界面选择路径。"
     },
@@ -170,7 +170,7 @@ const i18nDict = {
         sort_title: "Title (A-Z)", sort_artist: "Artist (A-Z)", sort_diff: "Difficulty", sort_bpm: "BPM",
         sort_asc: "Ascending", sort_desc: "Descending", select_song_start: "Select a song to start",
         loading_map: "Loading beatmap...", local_scores: "Local Scores", global_scores: "Global Rankings",
-        random_map: "[ Random Map ]", rend_default: "Default", unlimited: "Unlimited",
+        random_map: "[ Random Map ]", mods_btn: "Mods (F1)", mods_title: "Gameplay Mods", mods_subtitle: "Select mods to customise your gameplay experience (F1 / Shortcuts)", score_multiplier: "Score Multiplier", reset_mods: "Reset All (1)", cat_reduction: "Difficulty Reduction", cat_increase: "Difficulty Increase", cat_special: "Special", rend_default: "Default", unlimited: "Unlimited",
         single_thread: "Single Thread", multi_thread: "Multi Thread", high_precision: "Raw Input", mouse_sensitivity: "Mouse Sensitivity", confine_cursor: "Confine Cursor", confine_never: "Never", confine_play: "During Gameplay", confine_always: "Always", disable_wheel: "Disable Mouse Wheel in Game", disable_click: "Disable Mouse Clicks in Game", calibrate_offset: "Active Audio Offset Calibration",
         cursor_size: "Cursor Size (osu!std)", cursor_trail: "Enable Cursor Trail (osu!std)", snaking_sliders: "Snaking Sliders (osu!std)", hide_300: "Hide 300 Judgements (osu!std)", drop_osz_title: "Release to parse and install beatmap", drop_osz_desc: "Supports .osz packages, will automatically extract and add to library", toast_installing: "Parsing and installing beatmap: ", toast_installed: "Successfully installed beatmap: ", toast_install_fail: "Failed to install beatmap: ", toast_not_osz: "Please drop .osz format osu! beatmaps", toast_no_folder: "osu! Songs folder path not configured. Please select path first."
     }

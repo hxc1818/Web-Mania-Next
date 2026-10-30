@@ -25,18 +25,41 @@
       this.musicGain = this.audio.musicGain;
       this.sfxGain = this.audio.sfxGain;
 
+      this.mods = Array.isArray(this.mods) ? [...this.mods] : [];
       const d = this.beatmap.difficulty;
       this.cs = d.CircleSize;
       this.ar = d.ApproachRate;
       this.od = d.OverallDifficulty;
       this.hpRating = d.HPDrainRate;
       this.rate = 1;
+
+      // Apply Mod Difficulty Adjustments
+      if (this.hasMod('EZ')) {
+        this.cs *= 0.5;
+        this.ar *= 0.5;
+        this.od *= 0.5;
+        this.hpRating *= 0.5;
+      }
+      if (this.hasMod('HR')) {
+        this.cs = Math.min(10, this.cs * 1.3);
+        this.ar = Math.min(10, this.ar * 1.4);
+        this.od = Math.min(10, this.od * 1.4);
+        this.hpRating = Math.min(10, this.hpRating * 1.4);
+      }
+      if (this.hasMod('HT')) {
+        this.rate = 0.75;
+      }
+      if (this.hasMod('DT') || this.hasMod('NC')) {
+        this.rate = 1.5;
+      }
+
       this.radius = B.csToRadius(this.cs);
       this.preempt = B.arToPreempt(this.ar);
       this.fadeIn = 400 * Math.min(1, this.preempt / 450);
       this.win = B.odWindows(this.od);
       this.colours = this.beatmap.colours.filter(Boolean).length ? this.beatmap.colours.filter(Boolean) : DEFAULT_COLOURS;
-      this.objects = B.preparePlay(this.beatmap, { radius: this.radius, preempt: this.preempt, flipY: false });
+      const flipY = this.hasMod('HR');
+      this.objects = B.preparePlay(this.beatmap, { radius: this.radius, preempt: this.preempt, flipY });
       this.timing = this.beatmap.timing;
       this.breaks = this.beatmap.breaks || [];
       this.mapSamples = (this.beatmap.samples || []).slice().sort((a, b) => a.time - b.time);
@@ -54,7 +77,9 @@
       let drain = (this.lastTime - this.firstTime) - this.breaks.reduce((s, b) => s + (b.end - b.start), 0);
       drain = Math.max(1, drain / 1000);
       this.diffMult = Math.round((d.HPDrainRate + d.CircleSize + d.OverallDifficulty + clamp(this.objects.length / drain * 8, 0, 16)) / 38 * 5);
-      this.modMult = 1;
+      this.modMult = typeof OsuModsManager !== 'undefined' ? OsuModsManager.calculateMultiplier(0, this.mods) : 1;
+      this.ezLives = this.hasMod('EZ') ? 2 : 0;
+      this.lastNcBeat = -1;
 
       this.lastFrameTime = performance.now();
       this.frameCount = 0;
@@ -91,12 +116,117 @@
       this.recordedEvents = [];
       this.lastMoveRecordTime = -Infinity;
       this.replayIdx = 0;
+      this.ezLives = this.hasMod('EZ') ? 2 : 0;
+      this.lastNcBeat = -1;
       this.state = {
         failed: false,
         scoreV2: 0,
         combo: 0,
         acc: 100
       };
+    }
+
+    hasMod(m) {
+      return Array.isArray(this.mods) && this.mods.includes(m);
+    }
+
+    _updateAutoCursor(t) {
+      const objs = this.objects;
+      let targetObj = null;
+      for (let i = this.firstIdx; i < objs.length; i++) {
+        const o = objs[i];
+        if (o.judged && t > o.endTime + 50) continue;
+        if (o.time - this.preempt > t + 200) break;
+        targetObj = o;
+        break;
+      }
+      if (!targetObj) return;
+
+      if (targetObj.kind === 'circle') {
+        const h = this.headPos(targetObj);
+        this.cursor.x = h.x;
+        this.cursor.y = h.y;
+      } else if (targetObj.kind === 'slider') {
+        if (t < targetObj.time) {
+          const h = this.headPos(targetObj);
+          this.cursor.x = h.x;
+          this.cursor.y = h.y;
+        } else if (t <= targetObj.endTime) {
+          const b = this.ballPos(targetObj, t);
+          this.cursor.x = b.x;
+          this.cursor.y = b.y;
+        } else {
+          const e = this._endPos(targetObj);
+          this.cursor.x = e.x;
+          this.cursor.y = e.y;
+        }
+      } else if (targetObj.kind === 'spinner') {
+        const ang = (t / 1000) * TAU * 6;
+        this.cursor.x = 256 + Math.cos(ang) * 75;
+        this.cursor.y = 192 + Math.sin(ang) * 75;
+      }
+    }
+
+    _updateAutoClicks(t) {
+      const isAuto = this.hasMod('AT');
+      const objs = this.objects;
+      const cx = this.cursor.x, cy = this.cursor.y;
+
+      for (let i = this.firstIdx; i < objs.length; i++) {
+        const o = objs[i];
+        if (o.time - this.preempt > t) break;
+
+        if (o.kind === 'circle' && !o.judged) {
+          const h = this.headPos(o);
+          const inRange = Math.hypot(cx - h.x, cy - h.y) <= this.radius;
+          const inWindow = Math.abs(t - o.time) <= (isAuto ? 12 : this.win.w300);
+          if (inWindow && (isAuto || inRange)) {
+            this._click(o.time, h.x, h.y);
+          }
+        } else if (o.kind === 'slider') {
+          if (!o.headJudged) {
+            const h = this.headPos(o);
+            const inRange = Math.hypot(cx - h.x, cy - h.y) <= this.radius;
+            const inWindow = Math.abs(t - o.time) <= (isAuto ? 12 : this.win.w300);
+            if (inWindow && (isAuto || inRange)) {
+              this._click(o.time, h.x, h.y);
+            }
+          }
+          if (t >= o.time && t <= o.endTime) {
+            const b = this.ballPos(o, t);
+            const inRange = Math.hypot(cx - b.x, cy - b.y) <= this.radius * 2.4;
+            if (isAuto || inRange) {
+              this.held.add('K1');
+            }
+          }
+        }
+      }
+    }
+
+    _updateAutoSpin(t, prevT) {
+      const objs = this.objects;
+      const dt = Math.max(0, t - (prevT || (t - 16.6)));
+      for (let i = this.firstIdx; i < objs.length; i++) {
+        const o = objs[i];
+        if (o.kind === 'spinner' && !o.judged && t >= o.time && t <= o.endTime) {
+          const autoDA = (360 / 60) * TAU * (dt / 1000);
+          o.rotation += autoDA;
+          o.visualRot += autoDA;
+          const spins = Math.floor(o.rotation / TAU);
+          while (o.spins < spins) {
+            o.spins++;
+            if (o.spins > o.required) {
+              o.bonus++;
+              this.score += 1000;
+              this.audio.effect('spinnerbonus', 0.5);
+              this._hp(0.01);
+            } else {
+              this.score += 100;
+              this._hp(0.005);
+            }
+          }
+        }
+      }
     }
 
     // ============================================================ clock & audio
@@ -386,6 +516,19 @@
       this._hp(gain);
       this.judgeTexts.push({ x, y, t, label });
 
+      if (this.hasMod('SD') && res === 0 && !this.failed && !this.isReplay) {
+        this._fail();
+      }
+      if (this.hasMod('PF') && res < 300 && !this.failed && !this.isReplay) {
+        this._fail();
+      }
+      if (this.hasMod('SV2')) {
+        const totalObjs = Math.max(1, this.objects.length);
+        const accScore = Math.pow(this.accuracy(), 10) * 300000;
+        const comboScore = (this.combo / totalObjs) * 700000;
+        this.score = Math.round((accScore + comboScore) * this.modMult);
+      }
+
       this.state.scoreV2 = Math.round(this.score);
       this.state.combo = this.combo;
       this.state.acc = this.accuracy() * 100;
@@ -396,8 +539,21 @@
       this.combo = 0;
     }
     _hp(delta) {
+      if (this.hasMod('EZ') && delta < 0) delta *= 0.5;
       this.hp = clamp(this.hp + delta, 0, 1);
-      if (this.hp <= 0 && !this.isReplay && !this.failed && !this.finished) this._fail();
+      if (this.hp <= 0 && !this.isReplay && !this.failed && !this.finished) {
+        if (this.hasMod('NF')) {
+          this.hp = 0.01;
+          return;
+        }
+        if (this.hasMod('EZ') && this.ezLives > 0) {
+          this.ezLives--;
+          this.hp = 1.0;
+          this.audio.effect('spinnerbonus', 0.8);
+          return;
+        }
+        this._fail();
+      }
     }
     _fail() {
       this.pauseTime = this.now();
@@ -533,7 +689,14 @@
           else { this.score += 30; this._comboUp(); this._hp(0.015); this._sound(o, o.edgeSounds[n.edge], o.edgeSets[n.edge], n.kind === 'tail' ? o.endTime : n.time); }
           if (n.kind !== 'tick') this.effects.push({ kind: 'edge', x: px, y: py, t, obj: o });
         } else {
-          if (n.kind !== 'tail') { this._comboBreak(); this.counts.sliderBreaks++; this._hp(-0.02 - 0.005 * this.hpRating); }
+          if (n.kind !== 'tail') {
+            this._comboBreak();
+            this.counts.sliderBreaks++;
+            this._hp(-0.02 - 0.005 * this.hpRating);
+            if (this.hasMod('PF') && !this.failed && !this.isReplay) {
+              this._fail();
+            }
+          }
           if (n.kind !== 'tail') this.judgeTexts.push({ x: px, y: py, t, label: 'miss', small: true });
         }
       }
@@ -610,6 +773,33 @@
         }
       }
 
+      // Nightcore (NC) drum beats
+      if (this.hasMod('NC') && this.audio && this.audio.ctx) {
+        const tp = this.timing.at(t);
+        if (tp && tp.beatLength > 0 && t >= this.firstTime - 500) {
+          const beatIdx = Math.floor((t - tp.time) / tp.beatLength);
+          if (beatIdx !== this.lastNcBeat && beatIdx >= 0) {
+            this.lastNcBeat = beatIdx;
+            if (typeof playNightcoreBeat === 'function') {
+              playNightcoreBeat(this.audio.ctx, this.sfxGain, beatIdx);
+            }
+          }
+        }
+      }
+
+      // Autopilot (AP) / Auto (AT) aim
+      if ((this.hasMod('AP') || this.hasMod('AT')) && !this.isReplay && !this.failed) {
+        this._updateAutoCursor(t);
+      }
+      // Relax (RL) / Auto (AT) clicks
+      if ((this.hasMod('RL') || this.hasMod('AT')) && !this.isReplay && !this.failed) {
+        this._updateAutoClicks(t);
+      }
+      // Spun Out (SO) / Auto (AT) spin
+      if ((this.hasMod('SO') || this.hasMod('AT')) && !this.isReplay && !this.failed) {
+        this._updateAutoSpin(t, this.lastStep);
+      }
+
       const evs = this.events; this.events = [];
       for (const e of evs) {
         this._step(Math.max(e.time, this.lastStep == null ? e.time : this.lastStep), e.x, e.y, true);
@@ -643,8 +833,9 @@
       const c = this.counts, total = c[300] + c[100] + c[50] + c[0];
       if (!total) return 'SS';
       const p300 = c[300] / total, p50 = c[50] / total;
-      if (p300 === 1) return 'SS';
-      if (p300 > 0.9 && p50 <= 0.01 && c[0] === 0) return 'S';
+      const isSilver = this.hasMod('HD') || this.hasMod('FL');
+      if (p300 === 1) return isSilver ? 'SSH' : 'SS';
+      if (p300 > 0.9 && p50 <= 0.01 && c[0] === 0) return isSilver ? 'SH' : 'S';
       if ((p300 > 0.8 && c[0] === 0) || p300 > 0.9) return 'A';
       if ((p300 > 0.7 && c[0] === 0) || p300 > 0.8) return 'B';
       if (p300 > 0.6) return 'C';
@@ -726,6 +917,11 @@
 
     // ============================================================ rendering
     render(t) {
+      if (this.hasMod('CM')) {
+        const ctx = this.canvas.getContext('2d');
+        ctx.clearRect(0, 0, this.W, this.H);
+        return;
+      }
       const ctx = this.canvas.getContext('2d');
       const { W, H, dpr } = this;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -771,6 +967,30 @@
       for (let i = last - 1; i >= this.firstIdx; i--) if (objs[i].kind === 'spinner') this._drawSpinner(ctx, objs[i], t);
       this._drawEffects(ctx, t);
       this._drawJudgements(ctx, t);
+
+      // Flashlight (FL) dark mask
+      if (this.hasMod('FL')) {
+        let r = 120;
+        if (this.combo >= 200) r = 70;
+        else if (this.combo >= 100) r = 95;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(-400, -400, 1312, 1184);
+        ctx.arc(this.cursor.x, this.cursor.y, r, 0, TAU, true);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.98)';
+        ctx.fill();
+
+        const edge = ctx.createRadialGradient(this.cursor.x, this.cursor.y, r * 0.7, this.cursor.x, this.cursor.y, r);
+        edge.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        edge.addColorStop(1, 'rgba(0, 0, 0, 0.98)');
+        ctx.fillStyle = edge;
+        ctx.beginPath();
+        ctx.arc(this.cursor.x, this.cursor.y, r, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+
       ctx.restore();
 
       this._drawCursor(ctx, t);
@@ -781,6 +1001,12 @@
 
     _approachAlpha(o, t) {
       const appear = o.time - this.preempt;
+      if (this.hasMod('HD')) {
+        const fadeInEnd = appear + this.fadeIn;
+        const fadeOutEnd = o.time - this.preempt * 0.3;
+        if (t < fadeInEnd) return clamp((t - appear) / this.fadeIn, 0, 1);
+        return clamp(1 - (t - fadeInEnd) / Math.max(1, fadeOutEnd - fadeInEnd), 0, 1);
+      }
       return clamp((t - appear) / this.fadeIn, 0, 1);
     }
 
@@ -811,6 +1037,7 @@
     }
 
     _drawApproach(ctx, x, y, col, o, t) {
+      if (this.hasMod('HD')) return;
       if (t > o.time) return;
       const p = clamp((o.time - t) / this.preempt, 0, 1);
       const r = this.radius * (1 + 3 * p) * 0.94;

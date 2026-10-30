@@ -1677,10 +1677,13 @@ async function fetchLocalLeaderboard(mapId) {
             list.innerHTML = currentLocalScores.map((s, i) => {
                 const dateObj = new Date(s.date);
                 const dateStr = `${dateObj.getMonth()+1}/${dateObj.getDate()} ${dateObj.getHours()}:${String(dateObj.getMinutes()).padStart(2,'0')}`;
+                const modsHtml = (s.mods && s.mods.length > 0 && typeof OsuModsManager !== 'undefined') 
+                    ? `<div style="display:flex; gap:3px; align-items:center; margin-left:8px;">${OsuModsManager.renderBadgeList(s.mods, 'mini')}</div>` 
+                    : '';
                 return `
                 <div class="leaderboard-item local-lb-item" style="cursor: pointer; transition: 0.2s;" onclick="playReplay('${s.id}')">
                     <div style="display:flex; flex-direction:column; gap:3px;">
-                        <span><span style="color:#aaa;font-size:12px;">#${i+1}</span> <b style="color:#34d399;">${s.player}</b> <span class="color-${s.grade.toLowerCase()}" style="margin-left:5px; font-weight:800; font-style:italic;">${s.grade}</span></span>
+                        <span style="display:flex; align-items:center;"><span style="color:#aaa;font-size:12px;">#${i+1}</span> <b style="color:#34d399; margin-left:4px;">${s.player}</b> <span class="color-${s.grade.toLowerCase()}" style="margin-left:5px; font-weight:800; font-style:italic;">${s.grade}</span> ${modsHtml}</span>
                         <span style="color:#aaa; font-size:11px;">${dateStr} | ACC: ${s.acc.toFixed(2)}% | 连击: ${s.combo}x</span>
                     </div>
                     <span style="color:#fbbf24; font-weight:700; font-size:15px;">${s.score.toLocaleString()}</span>
@@ -1708,6 +1711,7 @@ function playReplay(scoreId) {
         mode: scoreData.mode !== undefined ? scoreData.mode : (selectedMap.mode !== undefined ? selectedMap.mode : 3),
         events: scoreData.replay
     }));
+    sessionStorage.setItem('webmania_mods', JSON.stringify(scoreData.mods || []));
     setTimeout(() => { window.location.href = 'game.html'; }, 1000);
 }
 
@@ -1718,6 +1722,9 @@ async function selectMap(bm, element) {
     selectedMap = bm;
 
     const isStd = bm.mode === 0;
+    if (window.osuMods) {
+        window.osuMods.setMode(isStd ? 0 : 3);
+    }
     const csDisplay = bm.cs || 4;
     document.getElementById('info-title').innerText = bm.title;
     document.getElementById('info-artist').innerText = bm.artist;
@@ -1987,6 +1994,10 @@ function finishStartGame(cachedVideoPath) {
         sessionStorage.setItem('webmania_cached_video', cachedVideoPath);
     } else {
         sessionStorage.removeItem('webmania_cached_video');
+    }
+    if (window.osuMods) {
+        sessionStorage.setItem('webmania_mods', JSON.stringify(window.osuMods.getMods()));
+        sessionStorage.setItem('webmania_mod_multiplier', window.osuMods.getMultiplier().toString());
     }
     window.location.href = 'game.html';
 }

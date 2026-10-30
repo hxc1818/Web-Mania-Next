@@ -235,10 +235,11 @@ function updateLeaderboard() {
     `).join('');
 }
 
-function getGrade(acc, failed) {
+function getGrade(acc, failed, mods = []) {
     if (failed) return 'F';
-    if (acc === 100) return 'SS';
-    if (acc >= 95) return 'S';
+    const isSilver = Array.isArray(mods) && (mods.includes('HD') || mods.includes('FL'));
+    if (acc === 100) return isSilver ? 'SSH' : 'SS';
+    if (acc >= 95) return isSilver ? 'SH' : 'S';
     if (acc >= 90) return 'A';
     if (acc >= 80) return 'B';
     if (acc >= 70) return 'C';
@@ -247,10 +248,20 @@ function getGrade(acc, failed) {
 }
 
 class GameEngine {
-    constructor(canvas, beatmapData, audioBuffer, audioCtx, stars, onEnd, leaderboard, isSpectator = false, loadedHitSounds = {}) {
+    constructor(canvas, beatmapData, audioBuffer, audioCtx, stars, onEnd, leaderboard, isSpectator = false, loadedHitSounds = {}, mods = []) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d', { desynchronized: userSettings.desync || false });
-        this.notes = beatmapData.notes;
+        this.mods = Array.isArray(mods) ? [...mods] : [];
+        this.hasMod = (mod) => this.mods.includes(mod);
+        this.modMultiplier = (window.OsuModsManager && typeof window.OsuModsManager.calculateMultiplier === 'function')
+            ? window.OsuModsManager.calculateMultiplier(this.mods, 3) : 1.0;
+        this.playbackRate = (this.hasMod('DT') || this.hasMod('NC')) ? 1.5 : (this.hasMod('HT') ? 0.75 : 1.0);
+        this.ezLives = this.hasMod('EZ') ? 2 : 0;
+        this.timingPoints = beatmapData.timingPoints || [];
+        this.lastNcBeat = -1;
+
+        // Clone notes to allow mod transformations (e.g. MR / RD)
+        this.notes = beatmapData.notes.map(n => ({ ...n }));
         this.audioBuffer = audioBuffer;
         this.audioCtx = audioCtx;
         this.onEnd = onEnd;
@@ -285,7 +296,28 @@ class GameEngine {
         
         this.inBreak = false;
 
+        this.laneCount = beatmapData.cs || 4;
+
+        // Apply Mirror (MR) or Random (RD) lane mapping
+        if (this.hasMod('MR')) {
+            for (let n of this.notes) {
+                n.column = (this.laneCount - 1) - n.column;
+            }
+        } else if (this.hasMod('RD')) {
+            const perm = Array.from({ length: this.laneCount }, (_, i) => i);
+            for (let i = perm.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const tmp = perm[i]; perm[i] = perm[j]; perm[j] = tmp;
+            }
+            for (let n of this.notes) {
+                n.column = perm[n.column];
+            }
+        }
+
         this.od = beatmapData.od !== undefined ? beatmapData.od : 5;
+        if (this.hasMod('EZ')) this.od *= 0.5;
+        if (this.hasMod('HR')) this.od = Math.min(10, this.od * 1.4);
+
         this.judge = {
             max: 16,
             p300: Math.max(16, 64 - 3 * this.od),
@@ -296,8 +328,6 @@ class GameEngine {
         };
 
         this.scrollSpeed = userSettings.scrollSpeed || 1000;
-        
-        this.laneCount = beatmapData.cs || 4;
         
         let baseLaneWidth = 100;
         if(this.laneCount > 4) baseLaneWidth = 80;
@@ -485,18 +515,21 @@ class GameEngine {
         }
         this.audioSource = this.audioCtx.createBufferSource();
         this.audioSource.buffer = this.audioBuffer;
+        if (this.audioSource.playbackRate) {
+            this.audioSource.playbackRate.value = this.playbackRate;
+        }
         if (this.musicGain) this.audioSource.connect(this.musicGain);
         else this.audioSource.connect(this.audioCtx.destination);
 
         const delaySeconds = offsetSec === 0 ? (this.spectatorDelay / 1000) : 0;
         this.audioOffsetSec = offsetSec;
-        this.fallbackStartTime = performance.now() + delaySeconds * 1000 - offsetSec * 1000;
+        this.fallbackStartTime = performance.now() + delaySeconds * 1000 - (offsetSec * 1000) / this.playbackRate;
 
         if (this.audioCtx.state === 'suspended') {
             this.audioCtx.resume().catch(e => console.warn("Audio autoplay prevented", e));
         }
 
-        this.startTime = this.audioCtx.currentTime + delaySeconds - offsetSec;
+        this.startTime = this.audioCtx.currentTime + delaySeconds - (offsetSec / this.playbackRate);
         this.audioSource.start(this.audioCtx.currentTime + delaySeconds, Math.max(0, offsetSec));
 
         // Advance nextSoundNoteIndex past skipped time
@@ -590,7 +623,8 @@ class GameEngine {
             pp: this.state.currentPP,
             combo: this.state.maxCombo,
             stats: this.state.stats,
-            grade: getGrade(this.state.acc, this.state.failed)
+            grade: getGrade(this.state.acc, this.state.failed, this.mods),
+            mods: this.mods
         });
     }
 
@@ -600,9 +634,9 @@ class GameEngine {
         }
         let t = 0;
         if (this.audioCtx.state === 'running') {
-            t = (this.audioCtx.currentTime - this.startTime) * 1000;
+            t = (this.audioCtx.currentTime - this.startTime) * 1000 * this.playbackRate;
         } else {
-            t = performance.now() - this.fallbackStartTime;
+            t = (performance.now() - this.fallbackStartTime) * this.playbackRate;
         }
         return t - (userSettings.offset || 0); 
     }
@@ -667,6 +701,20 @@ class GameEngine {
     addJudge(type, diff = 0, lane = -1, isTail = false) {
         if(this.state.failed) return; 
         
+        // SD / PF Instant fail checks
+        if (!isMulti && !this.isReplay && !this.isSpectator && !this.hasMod('AT') && !this.hasMod('CM')) {
+            if (this.hasMod('SD') && type === 'miss') {
+                this.state.hp = 0;
+                this._triggerFail();
+                return;
+            }
+            if (this.hasMod('PF') && type !== 'max' && type !== 'p300') {
+                this.state.hp = 0;
+                this._triggerFail();
+                return;
+            }
+        }
+
         this.state.stats[type]++;
         if (type !== 'miss') {
             this.state.hitErrors.push({ diff: diff, time: this.getTime(), type: type });
@@ -678,11 +726,21 @@ class GameEngine {
         if (type === 'miss') this.state.combo = 0;
         else { this.state.combo++; if (this.state.combo > this.state.maxCombo) this.state.maxCombo = this.state.combo; }
         
-        this.state.hp = Math.min(100, Math.max(0, this.state.hp + HP_MOD[type]));
+        let hpDelta = HP_MOD[type];
+        if (this.hasMod('EZ') && hpDelta < 0) hpDelta *= 0.5;
+        else if (this.hasMod('HR') && hpDelta < 0) hpDelta *= 1.4;
+        this.state.hp = Math.min(100, Math.max(0, this.state.hp + hpDelta));
         
         if (this.state.hp <= 0 && !this.state.failed) {
-            this._triggerFail();
-            if (!isMulti && !this.isReplay && !this.isSpectator) return;
+            if (this.ezLives > 0) {
+                this.ezLives--;
+                this.state.hp = 100;
+            } else if (this.hasMod('NF')) {
+                this.state.hp = 0;
+            } else {
+                this._triggerFail();
+                if (!isMulti && !this.isReplay && !this.isSpectator) return;
+            }
         }
 
         this.addEffect(type);
@@ -706,7 +764,7 @@ class GameEngine {
             let accScore = Math.floor(700000 * (currentBase / maxBase)); 
             let totalObj = this.notes.length * 2; 
             let comboBonus = Math.floor(300000 * (this.state.maxCombo / totalObj));
-            this.state.scoreV2 = accScore + comboBonus;
+            this.state.scoreV2 = Math.round((accScore + comboBonus) * this.modMultiplier);
         }
 
         let score = this.state.scoreV2;
@@ -802,6 +860,7 @@ class GameEngine {
 
     onKeyDown(lane, forcedTime = null) {
         if (!this.isRunning || this.isPaused || this.state.failed || lane >= this.laneCount) return;
+        if (!forcedTime && (this.hasMod('AT') || this.hasMod('CM'))) return;
         
         this.keys[lane] = true;
         const now = forcedTime !== null ? forcedTime : this.getTime();
@@ -866,6 +925,7 @@ class GameEngine {
 
     onKeyUp(lane, forcedTime = null) {
         if (!this.isRunning || this.isPaused || this.state.failed || lane >= this.laneCount || this.isSpectator) return;
+        if (!forcedTime && (this.hasMod('AT') || this.hasMod('CM'))) return;
 
         this.keys[lane] = false;
         const now = forcedTime !== null ? forcedTime : this.getTime();
@@ -978,9 +1038,63 @@ class GameEngine {
             }
         }
 
+        // Nightcore (NC) drum beat synchronization
+        if (this.hasMod('NC') && this.audioCtx && this.timingPoints && this.timingPoints.length > 0) {
+            let activeTp = this.timingPoints[0];
+            for (let i = 0; i < this.timingPoints.length; i++) {
+                if (this.timingPoints[i].time <= now) {
+                    activeTp = this.timingPoints[i];
+                } else {
+                    break;
+                }
+            }
+            if (activeTp && activeTp.beatLength > 0 && now >= this.firstNoteTime - 500) {
+                const beatIdx = Math.floor((now - activeTp.time) / activeTp.beatLength);
+                if (beatIdx !== this.lastNcBeat && beatIdx >= 0) {
+                    this.lastNcBeat = beatIdx;
+                    if (typeof playNightcoreBeat === 'function') {
+                        playNightcoreBeat(this.audioCtx, this.sfxGain, beatIdx);
+                    }
+                }
+            }
+        }
+
+        // Auto (AT) / Cinema (CM) automated replay logic
+        if (!this.isSpectator && (this.hasMod('AT') || this.hasMod('CM'))) {
+            while (this.headJudgeStartIndex < this.notes.length && this.notes[this.headJudgeStartIndex].headJudged) {
+                this.headJudgeStartIndex++;
+            }
+            for (let i = this.headJudgeStartIndex; i < this.notes.length; i++) {
+                const note = this.notes[i];
+                if (note.time - now > 50) break;
+                if (!note.headJudged && now >= note.time) {
+                    note.headJudged = true;
+                    this.keys[note.column] = true;
+                    this.addJudge('max', 0, note.column, false);
+                    if (note.type === 'hold') {
+                        note.isHolding = true;
+                        this.holdingNotes[note.column] = note;
+                    } else {
+                        const col = note.column;
+                        setTimeout(() => { if (this.keys) this.keys[col] = false; }, 60);
+                    }
+                }
+            }
+            for (let lane = 0; lane < this.laneCount; lane++) {
+                const note = this.holdingNotes[lane];
+                if (note && note.type === 'hold' && note.isHolding && now >= note.endTime && !note.tailJudged) {
+                    note.tailJudged = true;
+                    note.isHolding = false;
+                    this.holdingNotes[lane] = null;
+                    this.keys[lane] = false;
+                    this.addJudge('max', 0, lane, true);
+                }
+            }
+        }
+
         const missThreshold = this.isReplay ? this.judge.p50 + 400 : this.judge.p50;
 
-        if (!this.isSpectator) {
+        if (!this.isSpectator && !this.hasMod('AT') && !this.hasMod('CM')) {
             // 1. Check completed hold notes in O(laneCount)
             for (let lane = 0; lane < this.laneCount; lane++) {
                 const note = this.holdingNotes[lane];
@@ -1023,6 +1137,13 @@ class GameEngine {
     draw(now) {
         const ctx = this.ctx;
         const W = this.W, H = this.H, dpr = this.dpr;
+
+        // Cinema (CM) mode: completely hide game HUD/track and only allow background/video playback
+        if (this.hasMod('CM')) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, W, H);
+            return;
+        }
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const offsetX = (W - this.trackWidth) / 2;
         ctx.clearRect(0, 0, W, H);
@@ -1071,16 +1192,37 @@ class GameEngine {
                 let endY = this.hitLineY - ((note.endTime - now) / 1000) * this.scrollSpeed;
                 if (note.isHolding) startY = this.hitLineY;
                 if (startY > 0 && endY < H) {
-                    ctx.globalAlpha = 0.5; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = 1.0;
+                    let modAlpha = 1.0;
+                    if (this.hasMod('HD')) {
+                        const prog = startY / this.hitLineY;
+                        modAlpha = prog <= 0.4 ? 1.0 : prog >= 0.7 ? 0.0 : (1.0 - (prog - 0.4) / 0.3);
+                    } else if (this.hasMod('FI')) {
+                        const prog = startY / this.hitLineY;
+                        modAlpha = prog <= 0.3 ? 0.0 : prog >= 0.65 ? 1.0 : ((prog - 0.3) / 0.35);
+                    }
+                    if (modAlpha <= 0.01) continue;
+                    ctx.globalAlpha = 0.5 * modAlpha; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = modAlpha;
                     if (!note.headJudged) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 2, startY - 15, this.laneWidth - 4, 15); }
                     ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, 15);
+                    ctx.globalAlpha = 1.0;
                 }
             } else {
                 if (note.headJudged) continue;
                 const y = this.hitLineY - ((note.time - now) / 1000) * this.scrollSpeed;
                 if (y > -20 && y < H + 20) {
+                    let modAlpha = 1.0;
+                    if (this.hasMod('HD')) {
+                        const prog = y / this.hitLineY;
+                        modAlpha = prog <= 0.4 ? 1.0 : prog >= 0.7 ? 0.0 : (1.0 - (prog - 0.4) / 0.3);
+                    } else if (this.hasMod('FI')) {
+                        const prog = y / this.hitLineY;
+                        modAlpha = prog <= 0.3 ? 0.0 : prog >= 0.65 ? 1.0 : ((prog - 0.3) / 0.35);
+                    }
+                    if (modAlpha <= 0.01) continue;
+                    ctx.globalAlpha = modAlpha;
                     ctx.fillStyle = color; ctx.fillRect(x + 2, y - 15, this.laneWidth - 4, 15);
                     ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 8, y - 10, this.laneWidth - 16, 5);
+                    ctx.globalAlpha = 1.0;
                 }
             }
         }
@@ -1095,10 +1237,54 @@ class GameEngine {
                 let startY = this.hitLineY;
                 let endY = this.hitLineY - ((note.endTime - now) / 1000) * this.scrollSpeed;
                 if (startY > 0 && endY < H) {
-                    ctx.globalAlpha = 0.5; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = 1.0;
-                    ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, 15);
+                    let modAlpha = 1.0;
+                    if (this.hasMod('HD')) {
+                        const prog = startY / this.hitLineY;
+                        modAlpha = prog <= 0.4 ? 1.0 : prog >= 0.7 ? 0.0 : (1.0 - (prog - 0.4) / 0.3);
+                    } else if (this.hasMod('FI')) {
+                        const prog = startY / this.hitLineY;
+                        modAlpha = prog <= 0.3 ? 0.0 : prog >= 0.65 ? 1.0 : ((prog - 0.3) / 0.35);
+                    }
+                    if (modAlpha > 0.01) {
+                        ctx.globalAlpha = 0.5 * modAlpha; ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, startY - endY); ctx.globalAlpha = modAlpha;
+                        ctx.fillStyle = color; ctx.fillRect(x + 2, endY, this.laneWidth - 4, 15);
+                        ctx.globalAlpha = 1.0;
+                    }
                 }
             }
+        }
+
+        // Flashlight (FL) illuminated horizontal mask
+        if (this.hasMod('FL')) {
+            ctx.save();
+            let slitHeight = 240;
+            if (this.state.combo >= 200) slitHeight = 160;
+            else if (this.state.combo >= 100) slitHeight = 200;
+            const topOfSlit = this.hitLineY - slitHeight * 0.75;
+            const bottomOfSlit = this.hitLineY + slitHeight * 0.25;
+
+            // Darkness above
+            if (topOfSlit > 0) {
+                ctx.fillStyle = '#050508';
+                ctx.fillRect(offsetX, 0, this.trackWidth, Math.max(0, topOfSlit - 50));
+                const gradTop = ctx.createLinearGradient(0, topOfSlit - 50, 0, topOfSlit);
+                gradTop.addColorStop(0, '#050508');
+                gradTop.addColorStop(1, 'rgba(5,5,8,0)');
+                ctx.fillStyle = gradTop;
+                ctx.fillRect(offsetX, topOfSlit - 50, this.trackWidth, 50);
+            }
+
+            // Darkness below
+            if (bottomOfSlit < H) {
+                const gradBot = ctx.createLinearGradient(0, bottomOfSlit, 0, bottomOfSlit + 50);
+                gradBot.addColorStop(0, 'rgba(5,5,8,0)');
+                gradBot.addColorStop(1, '#050508');
+                ctx.fillStyle = gradBot;
+                ctx.fillRect(offsetX, bottomOfSlit, this.trackWidth, 50);
+                ctx.fillStyle = '#050508';
+                ctx.fillRect(offsetX, bottomOfSlit + 50, this.trackWidth, Math.max(0, H - (bottomOfSlit + 50)));
+            }
+            ctx.restore();
         }
 
         ctx.textAlign = 'center';
@@ -1558,6 +1744,23 @@ async function initGame(isSpectating) {
         const canvas = document.getElementById('game-canvas');
         if (gameEngine) gameEngine.quit();
 
+        // Retrieve active mods for standard or mania mode
+        let activeMods = [];
+        if (isReplayMode && replayData && Array.isArray(replayData.mods)) {
+            activeMods = [...replayData.mods];
+        } else {
+            try {
+                const stored = sessionStorage.getItem('webmania_mods');
+                if (stored) activeMods = JSON.parse(stored);
+            } catch(e) {}
+        }
+
+        // Render active mod badges in the in-game HUD container
+        const inGameModsHud = document.getElementById('in-game-mods');
+        if (inGameModsHud && window.OsuModsManager) {
+            inGameModsHud.innerHTML = window.OsuModsManager.renderBadgeList(activeMods, 'small');
+        }
+
         if (isStdMode && stdBeatmap && window.OsuStdEngine && window.AudioEngine) {
             const stdAudio = new window.AudioEngine(audioCtx);
             const mVol = (userSettings.masterVol !== undefined ? userSettings.masterVol : 100) / 100;
@@ -1589,6 +1792,7 @@ async function initGame(isSpectating) {
                 leaderboard: currentLeaderboard,
                 isReplay: isReplayMode,
                 replayEvents: isReplayMode && replayData && Array.isArray(replayData.events) ? [...replayData.events] : [],
+                mods: activeMods,
                 onEnd: onGameEnd
             });
             gameEngine.start();
@@ -1618,7 +1822,7 @@ async function initGame(isSpectating) {
         gameEngine = new GameEngine(
             canvas, parsed, audioBuffer, audioCtx, 
             selectedMap.stars || getFakeStars(selectedMap.version), 
-            onGameEnd, currentLeaderboard, isSpectating, loadedHitSounds 
+            onGameEnd, currentLeaderboard, isSpectating, loadedHitSounds, activeMods
         );
         gameEngine.start();
     } catch (e) {
@@ -1632,6 +1836,7 @@ async function initGame(isSpectating) {
 function parseOsuFile(osuText) {
     const lines = osuText.split(/\r?\n/);
     let section = '', mode = 0, bpm = 0, hp = 0, od = 5, cs = 4, previewTime = -1, noteCount = 0, holdCount = 0, videoPath = null, beatLengths = [];
+    const timingPoints = [];
     const notes = [];
     const samples = []; 
     const breaks = []; 
@@ -1669,7 +1874,17 @@ function parseOsuFile(osuText) {
                 }
             }
         } 
-        else if (section === '[TimingPoints]') { let parts = line.split(','); if (parts.length >= 2) { let bl = parseFloat(parts[1]); if (bl > 0) beatLengths.push(bl); } } 
+        else if (section === '[TimingPoints]') {
+            let parts = line.split(',');
+            if (parts.length >= 2) {
+                let t = parseFloat(parts[0]);
+                let bl = parseFloat(parts[1]);
+                if (bl > 0) {
+                    beatLengths.push(bl);
+                    timingPoints.push({ time: t, beatLength: bl });
+                }
+            }
+        } 
         else if (section === '[HitObjects]') {
             const parts = line.split(',');
             if (parts.length >= 5) {
@@ -1737,6 +1952,7 @@ function parseOsuFile(osuText) {
         mode,
         notes: notes.sort((a,b) => a.time - b.time), 
         breaks: breaks.sort((a,b) => a.startTime - b.startTime),
+        timingPoints: timingPoints.sort((a,b) => a.time - b.time),
         bpm, hp, od, cs, previewTime, noteCount, holdCount, videoPath 
     };
 }
@@ -1770,6 +1986,8 @@ function onGameEnd(result) {
 
     const isStd = (result.mode === 0) || (selectedMap && selectedMap.mode === 0);
 
+    const endMods = (result && result.mods) || (gameEngine && gameEngine.mods) || [];
+
     if (!isMulti && !isReplayMode && !result.failed && gameEngine && gameEngine.recordedEvents && gameEngine.recordedEvents.length > 0) {
         const folderPath = localStorage.getItem('wm_folderPath');
         const scorePayload = {
@@ -1782,6 +2000,7 @@ function onGameEnd(result) {
                 combo: result.combo,
                 acc: result.acc,
                 grade: result.grade,
+                mods: endMods,
                 replay: gameEngine.recordedEvents
             }
         };
@@ -1849,6 +2068,12 @@ function onGameEnd(result) {
     const gradeEl = document.getElementById('result-grade');
     const failedEl = document.getElementById('result-failed');
     const statsContainer = document.getElementById('result-stats-container');
+
+    // Populate mod badges on result screen
+    const resBadgesEl = document.getElementById('res-mods-badges');
+    if (resBadgesEl && window.OsuModsManager) {
+        resBadgesEl.innerHTML = window.OsuModsManager.renderBadgeList(endMods, 'medium');
+    }
 
     if (gradeEl) {
         gradeEl.classList.remove('show');
