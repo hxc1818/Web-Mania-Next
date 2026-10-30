@@ -302,6 +302,8 @@ class HighPrecisionMouseManager {
     }
 
     shouldLock() {
+        const osuBrowser = document.getElementById("osu-browser-container");
+        if (osuBrowser && osuBrowser.classList.contains("active")) return false;
         const s = window.userSettings || {};
         const isGame = window.location.pathname.includes('game.html');
         if (s.confineCursor === 'always') return true;

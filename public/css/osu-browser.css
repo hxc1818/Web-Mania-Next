@@ -1,0 +1,460 @@
+/* /public/css/osu-browser.css */
+/* 嵌入式 osu! 原生风格浏览器与下载管理界面样式 */
+
+.osu-browser-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #0d0e14;
+    z-index: 5000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
+}
+
+.osu-browser-container.active {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+@keyframes wbFadeIn {
+    from { opacity: 0; transform: scale(0.99); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* 顶部原生风格工具条 */
+.osu-browser-header {
+    height: 48px;
+    background: #14141c;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    position: relative;
+    gap: 12px;
+    user-select: none;
+    flex-shrink: 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+/* 导航控制组 */
+.osu-browser-nav-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.wb-icon-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #94a3b8;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.wb-icon-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    transform: translateY(-1px);
+}
+
+.wb-icon-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.wb-icon-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* 谱面源快捷切换栏 */
+.wb-sources-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 2px 4px;
+    flex-shrink: 0;
+}
+
+.wb-source-btn {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.wb-source-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.wb-source-btn.active {
+    color: #60a5fa;
+    background: rgba(59, 130, 246, 0.2);
+    font-weight: 600;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 地址栏 */
+.osu-browser-address-bar {
+    flex: 1;
+    max-width: 660px;
+    height: 34px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 17px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.osu-browser-address-bar:focus-within {
+    border-color: #3b82f6;
+    background: rgba(0, 0, 0, 0.7);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.wb-ssl-icon {
+    font-size: 13px;
+    color: #10b981;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.wb-address-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-family: inherit;
+    text-overflow: ellipsis;
+}
+
+.wb-action-icon {
+    background: none;
+    border: none;
+    color: #64748b;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    border-radius: 4px;
+    transition: color 0.15s;
+}
+
+.wb-action-icon:hover {
+    color: #cbd5e1;
+}
+
+/* 右侧操作按钮组 */
+.osu-browser-actions-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.wb-action-btn {
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: #60a5fa;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    position: relative;
+}
+
+.wb-action-btn:hover {
+    background: rgba(59, 130, 246, 0.22);
+    color: #93c5fd;
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+.wb-badge {
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    min-width: 18px;
+    text-align: center;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.wb-badge.pulsing {
+    animation: wbBadgePulse 1.2s infinite;
+}
+
+@keyframes wbBadgePulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 4px rgba(239, 68, 68, 0.5); }
+    50% { transform: scale(1.15); box-shadow: 0 0 12px rgba(239, 68, 68, 0.9); }
+}
+
+.wb-shortcut-hint {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 700;
+    padding: 3px 7px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    letter-spacing: 0.5px;
+}
+
+.wb-close-btn {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #f87171;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+}
+
+.wb-close-btn:hover {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.4);
+}
+
+/* 顶部细进度加载条 */
+.wb-loading-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2.5px;
+    width: 0%;
+    background: linear-gradient(90deg, #3b82f6, #ec4899);
+    box-shadow: 0 0 10px #3b82f6;
+    transition: width 0.2s cubic-bezier(0.1, 0.9, 0.2, 1);
+    z-index: 10;
+}
+
+/* Webview 容器 */
+.osu-browser-webview-wrap {
+    flex: 1;
+    width: 100%;
+    height: calc(100% - 48px);
+    position: relative;
+    background: #000000;
+}
+
+.osu-browser-webview-wrap webview {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    border: none;
+}
+
+/* 下载列表下拉面板 */
+.wb-downloads-panel {
+    position: absolute;
+    top: 48px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 280px;
+    background: #11121a;
+    border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 6000;
+}
+
+.wb-dp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 13px;
+    font-weight: 700;
+    color: #f1f5f9;
+}
+
+.wb-text-btn {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.15s;
+    font-weight: 500;
+}
+
+.wb-text-btn:hover {
+    color: #cbd5e1;
+}
+
+.wb-downloads-list {
+    padding: 10px 20px;
+    overflow-y: auto;
+    max-height: 220px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 10px;
+}
+
+.wb-dl-empty {
+    text-align: center;
+    color: #64748b;
+    font-size: 13px;
+    padding: 36px 20px;
+    line-height: 1.6;
+}
+
+/* 下载单项卡片 */
+.wb-dl-item {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.15s ease;
+}
+
+.wb-dl-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.wb-dl-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.wb-dl-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f8fafc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 320px;
+}
+
+.wb-dl-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+.wb-dl-progress-track {
+    width: 100%;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.wb-dl-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    border-radius: 3px;
+    transition: width 0.15s ease-out;
+}
+
+.wb-dl-progress-fill.success {
+    background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.wb-dl-progress-fill.error {
+    background: #ef4444;
+}
+
+.wb-dl-progress-fill.importing {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+    animation: wbImportPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes wbImportPulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+.wb-dl-action-btn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.wb-dl-action-btn.view {
+    background: #3b82f6;
+    color: #ffffff;
+}
+
+.wb-dl-action-btn.view:hover {
+    background: #2563eb;
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+}
+
+.wb-dl-action-btn.cancel {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.wb-dl-action-btn.cancel:hover {
+    background: rgba(239, 68, 68, 0.35);
+    color: #ffffff;
+}

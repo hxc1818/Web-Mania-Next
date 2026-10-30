@@ -497,13 +497,81 @@ app.post('/api/scan', (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+function processOszImport(oszFilePath, folderPath, originalname = '') {
+    const zip = new AdmZip(oszFilePath);
+
+    let metaTitle = '';
+    let metaArtist = '';
+    let metaBeatmapSetId = '';
+    const zipEntries = zip.getEntries();
+    for (const entry of zipEntries) {
+        if (entry.entryName.toLowerCase().endsWith('.osu') && !entry.isDirectory) {
+            try {
+                const osuText = entry.getData().toString('utf8');
+                const meta = parseOsuMetadataFromString(osuText);
+                if (meta) {
+                    if (!metaTitle && meta.title && meta.title !== 'Unknown') metaTitle = meta.title;
+                    if (!metaArtist && meta.artist && meta.artist !== 'Unknown') metaArtist = meta.artist;
+                    if (!metaBeatmapSetId && meta.beatmapSetId) metaBeatmapSetId = meta.beatmapSetId;
+                }
+                if (metaTitle && metaArtist) break;
+            } catch(e) {}
+        }
+    }
+
+    let rawFolderName = '';
+    if (metaTitle) {
+        rawFolderName = `${metaBeatmapSetId && metaBeatmapSetId !== '-1' ? metaBeatmapSetId + ' ' : ''}${metaArtist ? metaArtist + ' - ' : ''}${metaTitle}`;
+    } else {
+        rawFolderName = (originalname || path.basename(oszFilePath)).replace(/\.osz$/i, '');
+    }
+
+    let folderName = rawFolderName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+    folderName = folderName.replace(/^\.+/, '').replace(/\.+$/, '').trim();
+    if (!folderName) folderName = 'Map_' + Date.now();
+
+    const targetPath = path.join(folderPath, folderName);
+    if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
+    zip.extractAllTo(targetPath, true);
+    try { if (fs.existsSync(oszFilePath)) fs.unlinkSync(oszFilePath); } catch(e) {}
+
+    const newBeatmaps = scanSingleFolder(targetPath);
+    const normalize = p => p ? p.replace(/\\/g, '/') : null;
+    const normTarget = normalize(targetPath);
+
+    // 增量更新谱面缓存
+    const tempDir = path.join(APP_DATA_PATH, 'Temp');
+    const cacheFile = path.join(tempDir, 'webmania_cache_v2.json');
+    let cachedBeatmaps = [];
+    if (fs.existsSync(cacheFile)) {
+        try {
+            cachedBeatmaps = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+            cachedBeatmaps = cachedBeatmaps.filter(b => b.dirPath !== normTarget);
+        } catch(e) {
+            cachedBeatmaps = [];
+        }
+    }
+    cachedBeatmaps.push(...newBeatmaps);
+    try {
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+        fs.writeFileSync(cacheFile, JSON.stringify(cachedBeatmaps));
+    } catch(e) {}
+
+    return {
+        success: true,
+        dirName: folderName,
+        dirPath: normTarget,
+        newBeatmaps: newBeatmaps,
+        count: newBeatmaps.length,
+        title: metaTitle || folderName
+    };
+}
+
 app.post('/api/upload', upload.single('file'), (req, res) => {
     try {
         const folderPath = req.body.folderPath;
         if (!folderPath || !fs.existsSync(folderPath)) throw new Error('目标文件夹不存在');
         if (!req.file || !fs.existsSync(req.file.path)) throw new Error('上传文件无效');
-
-        const zip = new AdmZip(req.file.path);
 
         let originalname = req.file.originalname;
         try {
@@ -513,153 +581,32 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
             }
         } catch(e) {}
 
-        let metaTitle = '';
-        let metaArtist = '';
-        let metaBeatmapSetId = '';
-        const zipEntries = zip.getEntries();
-        for (const entry of zipEntries) {
-            if (entry.entryName.toLowerCase().endsWith('.osu') && !entry.isDirectory) {
-                try {
-                    const osuText = entry.getData().toString('utf8');
-                    const meta = parseOsuMetadataFromString(osuText);
-                    if (meta) {
-                        if (!metaTitle && meta.title && meta.title !== 'Unknown') metaTitle = meta.title;
-                        if (!metaArtist && meta.artist && meta.artist !== 'Unknown') metaArtist = meta.artist;
-                        if (!metaBeatmapSetId && meta.beatmapSetId) metaBeatmapSetId = meta.beatmapSetId;
-                    }
-                    if (metaTitle && metaArtist) break;
-                } catch(e) {}
-            }
-        }
-
-        let rawFolderName = '';
-        if (metaTitle) {
-            rawFolderName = `${metaBeatmapSetId && metaBeatmapSetId !== '-1' ? metaBeatmapSetId + ' ' : ''}${metaArtist ? metaArtist + ' - ' : ''}${metaTitle}`;
-        } else {
-            rawFolderName = originalname.replace(/\.osz$/i, '');
-        }
-
-        let folderName = rawFolderName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
-        folderName = folderName.replace(/^\.+/, '').replace(/\.+$/, '').trim();
-        if (!folderName) folderName = 'Map_' + Date.now();
-
-        const targetPath = path.join(folderPath, folderName);
-        if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-        zip.extractAllTo(targetPath, true);
-        fs.unlinkSync(req.file.path);
-
-        const newBeatmaps = scanSingleFolder(targetPath);
-        const normalize = p => p ? p.replace(/\\/g, '/') : null;
-        const normTarget = normalize(targetPath);
-
-        // 增量更新谱面缓存
-        const tempDir = path.join(APP_DATA_PATH, 'Temp');
-        const cacheFile = path.join(tempDir, 'webmania_cache_v2.json');
-        let cachedBeatmaps = [];
-        if (fs.existsSync(cacheFile)) {
-            try {
-                cachedBeatmaps = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
-                cachedBeatmaps = cachedBeatmaps.filter(b => b.dirPath !== normTarget);
-            } catch(e) {
-                cachedBeatmaps = [];
-            }
-        }
-        cachedBeatmaps.push(...newBeatmaps);
-        try {
-            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-            fs.writeFileSync(cacheFile, JSON.stringify(cachedBeatmaps));
-        } catch(e) {}
-
-        res.json({
-            success: true,
-            dirName: folderName,
-            dirPath: normTarget,
-            newBeatmaps: newBeatmaps,
-            count: newBeatmaps.length,
-            title: metaTitle || folderName
-        });
+        const result = processOszImport(req.file.path, folderPath, originalname);
+        res.json(result);
     } catch (err) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         res.status(500).json({ error: err.message });
     }
 });
 
-const getRandomSid = (min = 1, max = 2000000) => Math.floor(Math.random() * (max - min + 1)) + min;
-
-app.get('/api/sayobot_random', async (req, res) => {
+app.post('/api/import_downloaded_map', (req, res) => {
     try {
-        const finalMaps = [];
-        let attempts = 0;
-        const targetCount = 10;
-        const maxAttempts = 1000;
-        const batchSize = 15;
-
-        while (finalMaps.length < targetCount && attempts < maxAttempts) {
-            const promises = [];
-            
-            for (let i = 0; i < batchSize; i++) {
-                attempts++;
-                const randomSid = getRandomSid();
-                const url = `https://api.sayobot.cn/v2/beatmapinfo?0=${randomSid}`;
-                promises.push(axios.get(url, { timeout: 3000 }).catch(() => null));
-            }
-            
-            const results = await Promise.all(promises);
-            
-            for (const result of results) {
-                if (finalMaps.length >= targetCount) break;
-                if (result && result.data && result.data.status === 0 && result.data.data) {
-                    const detailData = result.data.data;
-                    if (detailData.bid_data) {
-                        const validDiffs = detailData.bid_data.filter(d => d.mode === 0 || d.mode === 3);
-                        if (validDiffs.length > 0) {
-                            if (!finalMaps.find(m => m.sid === detailData.sid)) {
-                                const randomDiff = validDiffs[Math.floor(Math.random() * validDiffs.length)];
-                                detailData.selected_diff = randomDiff;
-                                finalMaps.push(detailData);
-                            }
-                        }
-                    }
-                }
-            }
+        const { filePath, folderPath, originalFilename } = req.body;
+        if (!filePath || !fs.existsSync(filePath)) {
+            return res.status(400).json({ error: '文件不存在: ' + filePath });
         }
-        
-        if (finalMaps.length > 0) res.json({ success: true, data: finalMaps });
-        else res.status(500).json({ error: "无法获取足够的谱面" });
-    } catch (e) {
-        res.status(500).json({ error: "Sayobot API 错误: " + e.message });
-    }
-});
-
-app.post('/api/download_sayobot', async (req, res) => {
-    const { sid, folderPath } = req.body;
-    if (!sid || !folderPath) return res.status(400).json({ error: "参数缺失" });
-    try {
-        const tempFilePath = path.join(os.tmpdir(), `temp_${sid}.osz`);
-        const writer = fs.createWriteStream(tempFilePath);
-        
-        const response = await axios({
-            method: 'GET',
-            url: `https://txy1.sayobot.cn/beatmaps/download/full/${sid}`,
-            responseType: 'stream'
-        });
-        
-        response.data.pipe(writer);
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-        
-        const zip = new AdmZip(tempFilePath);
-        const targetPath = path.join(folderPath, `Sayobot_${sid}`);
-        if (!fs.existsSync(targetPath)) fs.mkdirSync(targetPath, { recursive: true });
-        zip.extractAllTo(targetPath, true);
-        fs.unlinkSync(tempFilePath);
-        
-        clearCache();
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
+        if (!folderPath || !fs.existsSync(folderPath)) {
+            return res.status(400).json({ error: '目标 Songs 文件夹不存在' });
+        }
+        const result = processOszImport(filePath, folderPath, originalFilename);
+        res.json(result);
+    } catch (err) {
+        try {
+            if (req.body && req.body.filePath && fs.existsSync(req.body.filePath)) {
+                fs.unlinkSync(req.body.filePath);
+            }
+        } catch(e) {}
+        res.status(500).json({ error: err.message });
     }
 });
 

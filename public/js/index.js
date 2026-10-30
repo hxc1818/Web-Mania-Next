@@ -1544,23 +1544,7 @@ function renderMapList() {
         return 0;
     });
 
-    if (!isSelector && !searchTerm && !filterDir && filterKey === 'ALL' && diffRange.min === 0 && diffRange.max === 10) {
-        const randomGroupEl = document.createElement('div');
-        randomGroupEl.className = 'map-group';
-        randomGroupEl.id = 'sayobot-group';
-        randomGroupEl.innerHTML = `
-            <div class="map-group-header" onclick="loadSayobotRandom()" style="border-left-color: #3b82f6;">
-                <div class="map-group-header-content">
-                    <div style="font-weight:700; font-size:18px; color:#fff;">获取 Sayobot 谱面</div>
-                    <div style="font-size:12px; color:#aaa; margin-top:2px;">从网络获取10张随机谱面</div>
-                </div>
-            </div>
-            <div class="map-diff-list" id="sayobot-diff-list" style="grid-template-rows: 0fr;">
-                <div class="map-diff-list-inner" id="sayobot-list-inner"></div>
-            </div>
-        `;
-        list.appendChild(randomGroupEl);
-    }
+
 
     if (groupArray.length === 0) {
         const emptyMsg = document.createElement('div');
@@ -2006,3 +1990,40 @@ function finishStartGame(cachedVideoPath) {
     }
     window.location.href = 'game.html';
 }
+
+
+// 全局暴露给 osu-browser 等模块使用的谱面导入与定位接口
+window.addImportedBeatmaps = function(newBeatmaps, dirPath) {
+    if (!newBeatmaps || newBeatmaps.length === 0) return;
+    beatmaps = beatmaps.filter(b => b.dirPath !== dirPath);
+    beatmaps.push(...newBeatmaps);
+    mapGroups[dirPath] = newBeatmaps;
+    renderMapList();
+};
+
+window.focusAndSelectMap = function(dirPath, targetBeatmaps) {
+    const searchInput = document.getElementById('search-input');
+    if (searchInput && searchInput.value) {
+        searchInput.value = '';
+        sessionStorage.removeItem('wm_search');
+    }
+    renderMapList();
+    setTimeout(() => {
+        const header = document.querySelector(`.map-group-header[data-key="${dirPath.replace(/"/g, '&quot;')}"]`);
+        if (header) {
+            const groupEl = header.parentElement;
+            if (!groupEl.classList.contains('expanded')) {
+                header.click();
+            } else {
+                const firstItem = groupEl.querySelector('.map-diff-item');
+                if (firstItem && targetBeatmaps && targetBeatmaps[0]) {
+                    selectMap(targetBeatmaps[0], firstItem);
+                    firstItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+            setTimeout(() => {
+                groupEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 120);
+        }
+    }, 120);
+};

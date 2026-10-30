@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="css/common.css">
     <link rel="stylesheet" href="css/index.css">
+    <link rel="stylesheet" href="css/osu-browser.css">
 </head>
 <body>
     <div class="mode-switcher" style="display: none;">
@@ -34,6 +35,7 @@
 
     <div id="select-screen" class="screen">
         <div id="select-bg" class="select-bg"></div>
+        <div id="browser-btn" class="osu-btn top-btn-pos" style="right: 130px; height: 42px; padding: 0 16px; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.4); color: #93c5fd;" onclick="window.osuBrowserModule && window.osuBrowserModule.toggle()" title="按 Alt+B 快捷键打开/关闭">🌐 谱面站 (Alt+B)</div>
         <div id="settings-btn" class="osu-btn top-btn-pos" style="right: 40px; height: 42px; padding: 0 20px;" data-i18n="settings">设置</div>
         
         <div class="search-bar-container" id="search-bar-container">
@@ -215,11 +217,85 @@
         </div>
     </div>
 
+        <!-- 嵌入式 osu! 原生风格浏览器 -->
+    <div id="osu-browser-container" class="osu-browser-container">
+        <!-- 顶部原生控制栏 -->
+        <div class="osu-browser-header">
+            <div class="osu-browser-nav-group">
+                <button id="wb-btn-back" class="wb-icon-btn" title="后退" disabled>
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <button id="wb-btn-forward" class="wb-icon-btn" title="前进" disabled>
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
+                <button id="wb-btn-refresh" class="wb-icon-btn" title="刷新">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                </button>
+                <button id="wb-btn-home" class="wb-icon-btn" title="返回 osu! 谱面库首页">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                </button>
+            </div>
+
+            <!-- 谱面源快捷切换 -->
+            <div class="wb-sources-group">
+                <button class="wb-source-btn active" data-url="https://osu.ppy.sh/beatmapsets" title="osu! 官方谱面库">osu! 官网</button>
+                <button class="wb-source-btn" data-url="https://osu.sayobot.cn" title="Sayobot 小夜谱面库 (国内高速免登录直下)">Sayobot (小夜)</button>
+                <button class="wb-source-btn" data-url="https://nerinyan.moe" title="Nerinyan 现代化谱面镜像站">Nerinyan</button>
+            </div>
+
+            <div class="osu-browser-address-bar">
+                <span class="wb-ssl-icon" title="安全连接">🔒</span>
+                <input type="text" id="wb-address-input" class="wb-address-input" value="https://osu.ppy.sh/beatmapsets" spellcheck="false" placeholder="输入网址并回车...">
+                <button id="wb-btn-copy-url" class="wb-action-icon" title="复制网页链接">📋</button>
+            </div>
+
+            <div class="osu-browser-actions-group">
+                <!-- 下载管理按钮 -->
+                <button id="wb-btn-downloads" class="wb-action-btn" title="下载管理">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>下载</span>
+                    <span id="wb-dl-badge" class="wb-badge" style="display: none;">0</span>
+                </button>
+
+                <!-- 快捷键提示 -->
+                <div class="wb-shortcut-hint" title="按 Alt+B 可随时呼出/隐藏本浏览器">Alt+B</div>
+
+                <!-- 返回游戏按钮 -->
+                <button id="wb-btn-close" class="wb-close-btn" title="返回游戏 (Alt+B / ESC)">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    <span>返回游戏</span>
+                </button>
+            </div>
+
+            <!-- 细加载条 -->
+            <div id="wb-loading-bar" class="wb-loading-bar" style="display: none;"></div>
+        </div>
+
+        <!-- 浮动下载面板 -->
+        <div id="wb-downloads-panel" class="wb-downloads-panel" style="display: none;">
+            <div class="wb-dp-header">
+                <span>谱面下载与自动导入</span>
+                <div>
+                    <button id="wb-btn-clear-cache" class="wb-text-btn" style="margin-right: 12px;" title="清除浏览器缓存并强制刷新">清理缓存</button>
+                    <button id="wb-btn-clear-downloads" class="wb-text-btn">清空记录</button>
+                </div>
+            </div>
+            <div id="wb-downloads-list" class="wb-downloads-list">
+                <div class="wb-dl-empty">暂无下载任务<br><span style="font-size:12px;color:#64748b;margin-top:4px;display:inline-block;">在 osu! 网页点击谱面“下载”后将自动在此劫持并安装</span></div>
+            </div>
+        </div>
+
+        <!-- WebContentsView 承载区域 (由主进程独立渲染层精准覆盖) -->
+        <div id="osu-browser-webview-wrap" class="osu-browser-webview-wrap">
+        </div>
+    </div>
+
     <!-- 浮动通知容器 -->
     <div id="toast-container" class="toast-container"></div>
 
     <script src="js/beatmap.js"></script>
     <script src="js/common.js"></script>
     <script src="js/index.js"></script>
+    <script src="js/osu-browser.js"></script>
 </body>
 </html>
