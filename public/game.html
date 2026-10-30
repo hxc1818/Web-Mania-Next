@@ -20,6 +20,7 @@
 
         <div id="replay-badge" style="position: absolute; top: 15px; left: 50%; transform: translateX(-50%); background: rgba(52, 211, 153, 0.2); border: 1px solid #34d399; color: #34d399; padding: 6px 20px; border-radius: 20px; font-weight: 700; z-index: 100; display: none; text-shadow: 0 0 10px rgba(52, 211, 153, 0.6); letter-spacing: 1px; backdrop-filter: blur(5px);">观战中</div>
         
+        <div id="in-game-mods" class="in-game-mods-hud"></div>
         <div class="game-hud">
             <div id="hud-score" class="hud-score">0000000</div>
             <div class="hud-details">
@@ -69,6 +70,7 @@
             <div id="res-meta-title">Title</div>
             <div id="res-meta-artist">Artist</div>
             <div id="res-meta-stars" style="color: #fbbf24;">4.00 ★</div>
+            <div id="res-mods-badges" style="display: flex; gap: 6px; margin-top: 8px;"></div>
         </div>
 
         <div class="result-title">评级</div>
@@ -127,6 +129,7 @@
     <script src="js/common.js"></script>
     <script src="js/beatmap.js"></script>
     <script src="js/audio.js"></script>
+    <script src="js/mods.js"></script>
     <script src="js/standard-engine.js"></script>
     <script src="js/game.js"></script>
 </body>

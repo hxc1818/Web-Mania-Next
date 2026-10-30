@@ -82,6 +82,8 @@
             </div>
             
             <button id="btn-random-map" class="osu-btn" style="position: absolute; bottom: 30px; left: 80px; z-index: 100;" data-i18n="random_map">[ 随机选歌 ]</button>
+            <button id="btn-mods" class="osu-btn secondary" style="position: absolute; bottom: 30px; left: 240px; z-index: 100;" data-i18n="mods_btn">Mods (F1)</button>
+            <div id="active-mods-badges" style="position: absolute; bottom: 30px; left: 380px; display: flex; gap: 8px; z-index: 100; align-items: center;"></div>
         </div>
 
         <div class="select-right" id="map-list"></div>
@@ -218,8 +220,62 @@
     <!-- 浮动通知容器 -->
     <div id="toast-container" class="toast-container"></div>
 
+    <!-- 模组选择窗口 (Mods Modal) -->
+    <div id="mod-select-overlay" class="mod-modal-overlay">
+        <div class="mod-modal-box">
+            <div class="mod-modal-header">
+                <div class="mod-modal-title-wrap">
+                    <div class="mod-modal-title">
+                        <span data-i18n="mods_title">游戏模组</span>
+                        <span id="modal-mode-badge" style="font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4);">MANIA</span>
+                    </div>
+                    <div class="mod-modal-subtitle" data-i18n="mods_subtitle">选择模组以调整谱面难度与玩法（快捷键 F1 / 对应字母键）</div>
+                </div>
+                <div class="mod-modal-actions">
+                    <div id="modal-multiplier-pill" class="mod-multiplier-pill">
+                        <span data-i18n="score_multiplier">得分倍率</span>: <b id="modal-multiplier-val">1.00x</b>
+                    </div>
+                    <button class="osu-btn secondary osu-btn-sm" id="btn-reset-mods" onclick="window.resetMods()" data-i18n="reset_mods">全部重置 (1)</button>
+                    <button class="osu-btn danger osu-btn-sm" id="btn-close-mods" onclick="window.closeModsModal()" data-i18n="close">关闭 (Esc)</button>
+                </div>
+            </div>
+            <div class="mod-modal-content">
+                <!-- 难度降低 -->
+                <div class="mod-category-col mod-cat-reduction">
+                    <div class="mod-cat-title">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+                        <span data-i18n="cat_reduction">难度降低</span>
+                    </div>
+                    <div class="mod-card-list" id="mod-list-reduction"></div>
+                </div>
+                <!-- 难度增加 -->
+                <div class="mod-category-col mod-cat-increase">
+                    <div class="mod-cat-title">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                        <span data-i18n="cat_increase">难度增加</span>
+                    </div>
+                    <div class="mod-card-list" id="mod-list-increase"></div>
+                </div>
+                <!-- 特殊 -->
+                <div class="mod-category-col mod-cat-special">
+                    <div class="mod-cat-title">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        <span data-i18n="cat_special">特殊</span>
+                    </div>
+                    <div class="mod-card-list" id="mod-list-special"></div>
+                </div>
+            </div>
+            <div class="mod-modal-footer">
+                <div>快捷键: [Q] 简单 | [W] 绝不失败 | [E] 半速 | [A] 极限 | [S] 绝命/完胜 | [D] 双倍/夜核 | [F] 隐藏/渐入 | [G] 手电筒 | [V] 全自动/影院</div>
+                <div>Web-Mania-Next 模组系统</div>
+            </div>
+        </div>
+    </div>
+
+
     <script src="js/beatmap.js"></script>
     <script src="js/common.js"></script>
+    <script src="js/mods.js"></script>
     <script src="js/index.js"></script>
 </body>
 </html>
